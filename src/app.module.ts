@@ -1,0 +1,41 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './config/prisma.module';
+import { RedisModule } from './config/redis.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { ProductsModule } from './modules/products/products.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { CmsModule } from './modules/cms/cms.module';
+import { UploadModule } from './modules/upload/upload.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+        transport:
+          process.env.NODE_ENV === 'production'
+            ? undefined
+            : { target: 'pino-pretty', options: { singleLine: true } },
+      },
+    }),
+    PrismaModule,
+    RedisModule,
+    AuthModule,
+    UsersModule,
+    ProductsModule,
+    CategoriesModule,
+    OrdersModule,
+    CmsModule,
+    UploadModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
