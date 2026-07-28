@@ -1,104 +1,112 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# backend-cms
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend API phục vụ **quản trị viên** cho hệ thống Clothing Shop — được `frontend-admin` gọi trực tiếp. Đây là 1 trong 4 repo độc lập của hệ thống (không còn là monorepo/workspace chung):
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+| Repo | Vai trò | Port local |
+|---|---|---|
+| [backend-user](https://github.com/clothing-online-shop/backend-user) | API công khai cho khách hàng | `3001` |
+| **backend-cms** (repo này) | API quản trị cho admin | `3002` |
+| [frontend-website](https://github.com/clothing-online-shop/frontend-website) | Website bán hàng (Next.js) | `3000` |
+| [frontend-admin](https://github.com/clothing-online-shop/frontend-admin) | Trang quản trị (Vite + React) | `5173` |
 
-## Description
+`backend-user` và `backend-cms` dùng **chung một database PostgreSQL** (khác vai trò, khác cổng, khác `JWT_SECRET`, nhưng cùng schema/dữ liệu). **Repo này là nơi duy nhất được chạy Prisma migration** — xem phần Prisma bên dưới.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Tech stack
 
-## Local development
+- NestJS 11 + TypeScript
+- Prisma ORM + PostgreSQL
+- Redis (ioredis)
+- Passport JWT (access + refresh token) — hash mật khẩu bằng `argon2`
+- Cloudinary SDK (upload ảnh sản phẩm/banner)
+- class-validator / class-transformer cho DTO
+- Swagger (`@nestjs/swagger`) tự sinh doc tại `/api/docs`
+- nestjs-pino cho log có cấu trúc
 
-- Đây là backend quản trị (frontend-admin), chạy ở cổng `3002`. Đăng nhập chỉ chấp nhận tài khoản role `ADMIN`.
-- Nếu chưa chạy `docker compose up -d` ở `backend-user`, hãy chạy trước (Postgres/Redis dùng chung cho cả 2 backend).
-- **Đây là nơi duy nhất chạy `pnpm prisma:migrate`** (`prisma migrate dev`). Sau khi đổi schema, copy `prisma/schema.prisma` + `prisma/migrations` sang `backend-user` rồi chạy `pnpm prisma:generate` bên đó.
+## Module & route hiện có
 
-## Project setup
+Chỉ giữ lại phần quản trị — mọi route dành riêng khách hàng (đăng ký, quên mật khẩu, giỏ hàng, thanh toán) nằm bên `backend-user`.
 
-```bash
-$ pnpm install
-```
+| Module | Route | Ghi chú |
+|---|---|---|
+| `auth` | `POST /auth/login` | **Chỉ tài khoản `role = ADMIN`** mới đăng nhập được — tài khoản CUSTOMER bị từ chối (401) dù đúng mật khẩu |
+| | `POST /auth/refresh` | Cấp lại token (dùng `JWT_REFRESH_SECRET` riêng của backend này) |
+| | `GET /auth/me` | Thông tin admin hiện tại |
+| `categories` | `GET /categories`, `GET /categories/:slug`, `POST /categories`, `PATCH /categories/reorder`, `PATCH /categories/:id`, `DELETE /categories/:id` | Đầy đủ CRUD + sắp xếp cây danh mục (route ghi cần Bearer token ADMIN) |
+| `products` | `GET /products`, `GET /products/:slug`, `POST /products`, `PATCH /products/:id`, `DELETE /products/:id` (soft-delete → INACTIVE), `PATCH /products/:id/variants/:variantId/stock` | Đầy đủ CRUD + quản lý variants (size/màu/SKU/giá/tồn kho) |
+| `upload` | `POST /upload/image`, `DELETE /upload/image/:publicId` | Upload/xóa ảnh qua Cloudinary — toàn bộ route yêu cầu role ADMIN |
+| `orders` | *(chưa có route)* | Scaffold cho tính năng xem toàn bộ đơn hàng + cập nhật trạng thái, triển khai sau |
+| `cms` | *(chưa có route)* | Scaffold cho banner/blog/trang tĩnh, triển khai sau |
+| `users` | *(không có route public)* | Chỉ tồn tại như dependency nội bộ để `auth` tra cứu user khi login — không phải domain quản lý user ở backend này |
 
-## Compile and run the project
+## Yêu cầu môi trường
 
-```bash
-# development
-$ pnpm run start
+- Node.js 22+, `pnpm`
+- PostgreSQL 16 + Redis 7 chạy local — **khởi động ở `backend-user` trước** (xem README của `backend-user`), vì `docker-compose.yml` chỉ đặt ở đó để tránh chạy trùng 2 lần cho cùng 1 database.
 
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
-```
-
-## Run tests
+## Cài đặt & chạy local
 
 ```bash
-# unit tests
-$ pnpm run test
+# 1. Cài dependency (độc lập, không chạy từ thư mục cha)
+pnpm install
 
-# e2e tests
-$ pnpm run test:e2e
+# 2. Tạo .env từ mẫu, chỉnh nếu cần
+cp .env.example .env
 
-# test coverage
-$ pnpm run test:cov
+# 3. Đảm bảo Postgres/Redis đã chạy (docker compose up -d ở thư mục backend-user, hoặc service native)
+
+# 4. Áp dụng migration + sinh Prisma Client
+pnpm prisma:migrate
+
+# 5. (Lần đầu) seed dữ liệu mẫu: admin, danh mục, sản phẩm
+pnpm seed
+
+# 6. Chạy dev server (watch mode)
+pnpm dev
 ```
 
-## Deployment
+Server chạy ở `http://localhost:3002`, Swagger docs tại `http://localhost:3002/api/docs`, health check tại `http://localhost:3002/health`.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Biến môi trường (`.env`)
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+| Biến | Mô tả |
+|---|---|
+| `DATABASE_URL` | Kết nối Postgres — **phải trỏ cùng database với `backend-user`** |
+| `REDIS_URL` | Kết nối Redis |
+| `JWT_SECRET`, `JWT_REFRESH_SECRET` | Secret ký JWT — **khác với `backend-user`**, để token của khách và admin không thể dùng chéo giữa 2 backend |
+| `JWT_ACCESS_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | Thời hạn token (mặc định `15m` / `7d`) |
+| `PORT` | Mặc định `3002` |
+| `CMS_ORIGIN` | Origin của `frontend-admin` được phép gọi CORS (mặc định `http://localhost:5173`) |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Thông tin Cloudinary cho module `upload` — cần điền key thật để test upload ảnh |
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
+## Prisma — quy tắc migration
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+**Đây là repo duy nhất được chạy `prisma migrate dev`.** `backend-user` trỏ cùng database nhưng chỉ chạy `prisma generate`.
 
-## Resources
+Quy trình khi cần đổi schema:
+1. Sửa `prisma/schema.prisma` ở đây, chạy: `pnpm prisma:migrate` (tương đương `prisma migrate dev --name <mo-ta-thay-doi>`).
+2. Copy `prisma/schema.prisma` + thư mục `prisma/migrations` mới sang `backend-user`.
+3. Báo team để bên `backend-user` chạy lại `pnpm prisma:generate`.
 
-Check out a few resources that may come in handy when working with NestJS:
+Không sửa tay migration đã áp dụng, không sửa DB trực tiếp qua pgAdmin cho thay đổi cấu trúc.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Scripts
 
-## Support
+| Lệnh | Mô tả |
+|---|---|
+| `pnpm dev` | Chạy dev server (watch mode) |
+| `pnpm build` | Build production (`dist/`) |
+| `pnpm start:prod` | Chạy bản đã build |
+| `pnpm lint` | ESLint (`--fix`) |
+| `pnpm test`, `pnpm test:e2e` | Unit test / e2e test |
+| `pnpm prisma:migrate` | Tạo & áp dụng migration mới (`prisma migrate dev`) |
+| `pnpm prisma:generate` | Chỉ sinh lại Prisma Client, không tạo migration |
+| `pnpm prisma:studio` | Mở Prisma Studio để xem/sửa dữ liệu trực quan |
+| `pnpm seed` | Chạy `prisma/seed.ts` — seed 1 admin, 6 danh mục, 18 sản phẩm mẫu |
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Tài khoản admin mặc định (sau khi seed)
 
-## Stay in touch
+| Email | Mật khẩu |
+|---|---|
+| `admin@clothing-shop.com` | `admin123` |
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Tạo thêm admin khác bằng script Node (dùng `argon2` để hash mật khẩu rồi upsert vào bảng `users` với `role: 'ADMIN'`), hoặc thêm trực tiếp qua Prisma Studio.
