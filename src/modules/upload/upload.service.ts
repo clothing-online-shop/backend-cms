@@ -12,6 +12,7 @@ export interface UploadResult {
 }
 
 const UPLOAD_FOLDER = 'clothing-shop';
+const MAX_DIMENSION_PX = 2000;
 
 @Injectable()
 export class UploadService {
@@ -42,7 +43,20 @@ export class UploadService {
 
     const result = await new Promise<UploadApiResponse>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
-        { folder: UPLOAD_FOLDER, resource_type: 'image' },
+        {
+          folder: UPLOAD_FOLDER,
+          resource_type: 'image',
+          // Tự resize (không phóng to nếu ảnh nhỏ hơn) + tự nén: giảm dung lượng
+          // ảnh sản phẩm/banner mà không cần xử lý thủ công trước khi upload.
+          transformation: [
+            {
+              width: MAX_DIMENSION_PX,
+              height: MAX_DIMENSION_PX,
+              crop: 'limit',
+            },
+            { quality: 'auto', fetch_format: 'auto' },
+          ],
+        },
         (error, uploadResult) => {
           if (error || !uploadResult) {
             reject(
