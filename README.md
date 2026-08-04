@@ -76,7 +76,8 @@ Server chạy ở `http://localhost:3002`, Swagger docs tại `http://localhost:
 | `JWT_ACCESS_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | Thời hạn token (mặc định `15m` / `7d`) |
 | `PORT` | Mặc định `3002` |
 | `CMS_ORIGIN` | Origin của `frontend-admin` được phép gọi CORS (mặc định `http://localhost:5173`) |
-| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Thông tin Cloudinary cho module `upload` — cần điền key thật để test upload ảnh |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Thông tin Cloudinary cho module `upload` (ảnh upload tự resize tối đa 2000px + tự nén qua Cloudinary transformation) — cần điền key thật để test upload ảnh |
+| `SENTRY_DSN` | DSN của Sentry để forward lỗi 5xx — để trống thì bỏ qua, không bắt buộc ở dev local |
 
 ## Prisma — quy tắc migration
 
