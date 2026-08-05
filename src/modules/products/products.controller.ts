@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { isAdminPanelRole } from '../../common/constants/admin-panel-roles';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { ProductsService } from './products.service';
@@ -81,7 +82,7 @@ export class ProductsController {
     @Query() query: ListProductsQueryDto,
     @CurrentUser() user: AuthenticatedUser | null,
   ) {
-    return this.productsService.findAll(query, user?.role === UserRole.ADMIN);
+    return this.productsService.findAll(query, isAdminPanelRole(user?.role));
   }
 
   @Get(':slug')
@@ -93,13 +94,13 @@ export class ProductsController {
     @Param('slug') slug: string,
     @CurrentUser() user: AuthenticatedUser | null,
   ) {
-    return this.productsService.findBySlug(slug, user?.role === UserRole.ADMIN);
+    return this.productsService.findBySlug(slug, isAdminPanelRole(user?.role));
   }
 
   @Post()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Tạo sản phẩm mới kèm variants (Admin)' })
   create(@Body() dto: CreateProductDto) {
     return this.productsService.create(dto);
@@ -108,7 +109,7 @@ export class ProductsController {
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Cập nhật sản phẩm + đồng bộ lại variants (Admin)' })
   update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.productsService.update(id, dto);
@@ -117,7 +118,7 @@ export class ProductsController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({
     summary: 'Soft delete sản phẩm (chuyển status INACTIVE) (Admin)',
   })
@@ -128,7 +129,7 @@ export class ProductsController {
   @Patch(':id/variants/:variantId/stock')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Cập nhật nhanh tồn kho 1 variant (Admin)' })
   updateVariantStock(
     @Param('id') id: string,

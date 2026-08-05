@@ -52,7 +52,7 @@ export class CategoriesController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Tạo danh mục mới (Admin)' })
   create(@Body() dto: CreateCategoryDto) {
     return this.categoriesService.create(dto);
@@ -61,7 +61,7 @@ export class CategoriesController {
   @Patch('reorder')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Sắp xếp lại thứ tự/cha-con danh mục (Admin)' })
   reorder(@Body() dto: ReorderCategoriesDto) {
     return this.categoriesService.reorder(dto);
@@ -70,7 +70,7 @@ export class CategoriesController {
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Cập nhật danh mục (Admin)' })
   update(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
     return this.categoriesService.update(id, dto);
@@ -79,7 +79,7 @@ export class CategoriesController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Xóa danh mục (Admin, chặn nếu còn sản phẩm/con)' })
   remove(@Param('id') id: string) {
     return this.categoriesService.remove(id);

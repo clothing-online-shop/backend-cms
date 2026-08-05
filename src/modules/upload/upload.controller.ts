@@ -35,7 +35,7 @@ const ALLOWED_MIME_TYPES = [
 @ApiBearerAuth()
 @Controller('upload')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
+@Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF, UserRole.MARKETING)
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
