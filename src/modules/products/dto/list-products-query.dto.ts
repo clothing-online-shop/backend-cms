@@ -53,12 +53,10 @@ export class ListProductsQueryDto {
   @IsString()
   search?: string;
 
-  @ApiPropertyOptional({
-    description: 'Lọc theo thương hiệu (contains, không phân biệt hoa thường)',
-  })
+  @ApiPropertyOptional({ description: 'Lọc theo id thương hiệu' })
   @IsOptional()
   @IsString()
-  brand?: string;
+  brandId?: string;
 
   @ApiPropertyOptional({
     enum: ProductStatus,

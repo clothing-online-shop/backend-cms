@@ -74,8 +74,8 @@ export class ProductsService {
       ];
     }
 
-    if (query.brand) {
-      where.brand = { contains: query.brand, mode: 'insensitive' };
+    if (query.brandId) {
+      where.brandId = query.brandId;
     }
 
     const [products, total] = await this.prisma.$transaction([
@@ -105,6 +105,7 @@ export class ProductsService {
       where: { slug },
       include: {
         category: true,
+        brand: true,
         variants: true,
         reviews: { orderBy: { createdAt: 'desc' } },
       },
@@ -137,6 +138,9 @@ export class ProductsService {
         name: product.category.name,
         slug: product.category.slug,
       },
+      brand: product.brand
+        ? { id: product.brand.id, name: product.brand.name }
+        : null,
       variants: product.variants.map(toVariantDto),
       reviews: product.reviews,
       relatedProducts: relatedProducts.map(toListItem),
@@ -180,7 +184,7 @@ export class ProductsService {
         description: dto.description,
         material: dto.material,
         careInstructions: dto.careInstructions,
-        brand: dto.brand,
+        brandId: dto.brandId,
         categoryId: dto.categoryId,
         basePrice: dto.basePrice,
         salePrice: dto.salePrice,
@@ -236,7 +240,7 @@ export class ProductsService {
           description: dto.description,
           material: dto.material,
           careInstructions: dto.careInstructions,
-          brand: dto.brand,
+          brandId: dto.brandId,
           categoryId: dto.categoryId,
           basePrice: dto.basePrice,
           salePrice: dto.salePrice,
@@ -518,7 +522,7 @@ function toListItem(product: ProductWithStockVariants) {
     thumbnail: product.thumbnail,
     basePrice: product.basePrice.toNumber(),
     salePrice: product.salePrice?.toNumber() ?? null,
-    brand: product.brand,
+    brandId: product.brandId,
     status: product.status,
     categoryId: product.categoryId,
     totalStock: product.variants.reduce((sum, v) => sum + v.stockQuantity, 0),
