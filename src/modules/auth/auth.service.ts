@@ -2,9 +2,10 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { User, UserRole } from '@prisma/client';
+import { User } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { UsersService } from '../users/users.service';
+import { isAdminPanelRole } from '../../common/constants/admin-panel-roles';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
@@ -35,7 +36,7 @@ export class AuthService {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
     }
 
-    if (user.role !== UserRole.ADMIN) {
+    if (!isAdminPanelRole(user.role)) {
       throw new UnauthorizedException('Tài khoản không có quyền quản trị');
     }
 
@@ -79,7 +80,7 @@ export class AuthService {
     }
 
     const user = await this.usersService.findById(payload.sub);
-    if (!user || user.role !== UserRole.ADMIN) {
+    if (!user || !isAdminPanelRole(user.role)) {
       throw new UnauthorizedException('Người dùng không tồn tại');
     }
 

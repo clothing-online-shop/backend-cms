@@ -1,4 +1,4 @@
-import { PrismaClient, ProductStatus } from '@prisma/client';
+import { PrismaClient, ProductStatus, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { generateSlug } from '../src/common/utils/slug.util';
 
@@ -75,19 +75,37 @@ async function seedProduct(seed: ProductSeed, imageSeed: number): Promise<void> 
   });
 }
 
+const CMS_ACCOUNTS: { email: string; password: string; fullName: string; role: UserRole }[] = [
+  { email: 'admin@clothing-shop.com', password: 'admin123', fullName: 'Quản trị viên', role: 'ADMIN' },
+  {
+    email: 'warehouse@clothing-shop.com',
+    password: 'warehouse123',
+    fullName: 'Nhân viên kho',
+    role: 'WAREHOUSE_STAFF',
+  },
+  {
+    email: 'marketing@clothing-shop.com',
+    password: 'marketing123',
+    fullName: 'Nhân viên marketing',
+    role: 'MARKETING',
+  },
+];
+
 async function main() {
-  console.log('Seeding admin user...');
-  const adminPasswordHash = await argon2.hash('admin123');
-  await prisma.user.upsert({
-    where: { email: 'admin@clothing-shop.com' },
-    update: {},
-    create: {
-      email: 'admin@clothing-shop.com',
-      password: adminPasswordHash,
-      fullName: 'Quản trị viên',
-      role: 'ADMIN',
-    },
-  });
+  console.log('Seeding CMS accounts (ADMIN, WAREHOUSE_STAFF, MARKETING)...');
+  for (const account of CMS_ACCOUNTS) {
+    const passwordHash = await argon2.hash(account.password);
+    await prisma.user.upsert({
+      where: { email: account.email },
+      update: {},
+      create: {
+        email: account.email,
+        password: passwordHash,
+        fullName: account.fullName,
+        role: account.role,
+      },
+    });
+  }
 
   console.log('Seeding categories...');
   const nam = await upsertCategory({ name: 'Nam', slug: 'nam', sortOrder: 1 });
@@ -143,7 +161,9 @@ async function main() {
     await seedProduct(seed, 100 + index * 3);
   }
 
-  console.log(`Đã seed xong: 1 admin, 6 danh mục, ${productSeeds.length} sản phẩm.`);
+  console.log(
+    `Đã seed xong: ${CMS_ACCOUNTS.length} tài khoản CMS, 6 danh mục, ${productSeeds.length} sản phẩm.`,
+  );
 }
 
 main()
