@@ -39,10 +39,10 @@ export class CreateProductDto {
   @IsString()
   careInstructions?: string;
 
-  @ApiPropertyOptional({ example: 'Uniqlo' })
+  @ApiPropertyOptional({ description: 'id thương hiệu, xem GET /brands' })
   @IsOptional()
   @IsString()
-  brand?: string;
+  brandId?: string;
 
   @ApiProperty()
   @IsString()
