@@ -64,7 +64,18 @@ export class ProductsService {
     }
 
     if (query.search) {
-      where.name = { contains: query.search, mode: 'insensitive' };
+      where.OR = [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        {
+          variants: {
+            some: { sku: { contains: query.search, mode: 'insensitive' } },
+          },
+        },
+      ];
+    }
+
+    if (query.brand) {
+      where.brand = { contains: query.brand, mode: 'insensitive' };
     }
 
     const [products, total] = await this.prisma.$transaction([
@@ -116,6 +127,10 @@ export class ProductsService {
     return {
       ...toListItem(product),
       description: product.description,
+      material: product.material,
+      careInstructions: product.careInstructions,
+      metaTitle: product.metaTitle,
+      metaDescription: product.metaDescription,
       images: product.images,
       category: {
         id: product.category.id,
@@ -133,6 +148,7 @@ export class ProductsService {
   ): Promise<Product & { variants: ProductVariant[] }> {
     assertNoDuplicateVariants(dto.variants);
     await this.assertCategoryExists(dto.categoryId);
+    this.assertValidSalePrice(dto.salePrice, dto.basePrice);
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
     const usedSkus = new Set<string>();
@@ -162,11 +178,17 @@ export class ProductsService {
         name: dto.name,
         slug,
         description: dto.description,
+        material: dto.material,
+        careInstructions: dto.careInstructions,
+        brand: dto.brand,
         categoryId: dto.categoryId,
         basePrice: dto.basePrice,
+        salePrice: dto.salePrice,
         status: dto.status ?? ProductStatus.DRAFT,
         thumbnail: dto.thumbnail,
         images: dto.images ?? [],
+        metaTitle: dto.metaTitle,
+        metaDescription: dto.metaDescription,
         variants: { create: variantsData },
       },
       include: { variants: true },
@@ -199,6 +221,11 @@ export class ProductsService {
     }
 
     const basePrice = dto.basePrice ?? existing.basePrice.toNumber();
+    const effectiveSalePrice =
+      dto.salePrice !== undefined
+        ? dto.salePrice
+        : existing.salePrice?.toNumber();
+    this.assertValidSalePrice(effectiveSalePrice, basePrice);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.product.update({
@@ -207,11 +234,17 @@ export class ProductsService {
           name: dto.name,
           slug,
           description: dto.description,
+          material: dto.material,
+          careInstructions: dto.careInstructions,
+          brand: dto.brand,
           categoryId: dto.categoryId,
           basePrice: dto.basePrice,
+          salePrice: dto.salePrice,
           status: dto.status,
           thumbnail: dto.thumbnail,
           images: dto.images,
+          metaTitle: dto.metaTitle,
+          metaDescription: dto.metaDescription,
         },
       });
 
@@ -353,6 +386,15 @@ export class ProductsService {
     }
   }
 
+  private assertValidSalePrice(
+    salePrice: number | undefined,
+    basePrice: number,
+  ): void {
+    if (salePrice !== undefined && salePrice >= basePrice) {
+      throw new BadRequestException('Giá khuyến mãi phải nhỏ hơn giá gốc');
+    }
+  }
+
   private async resolveCategoryIds(slugOrId: string): Promise<string[]> {
     const category = await this.prisma.category.findFirst({
       where: { OR: [{ slug: slugOrId }, { id: slugOrId }] },
@@ -475,6 +517,8 @@ function toListItem(product: ProductWithStockVariants) {
     slug: product.slug,
     thumbnail: product.thumbnail,
     basePrice: product.basePrice.toNumber(),
+    salePrice: product.salePrice?.toNumber() ?? null,
+    brand: product.brand,
     status: product.status,
     categoryId: product.categoryId,
     totalStock: product.variants.reduce((sum, v) => sum + v.stockQuantity, 0),
