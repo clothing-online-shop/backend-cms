@@ -29,6 +29,21 @@ export class CreateProductDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({ example: 'Cotton 100%' })
+  @IsOptional()
+  @IsString()
+  material?: string;
+
+  @ApiPropertyOptional({ example: 'Giặt tay, không dùng thuốc tẩy' })
+  @IsOptional()
+  @IsString()
+  careInstructions?: string;
+
+  @ApiPropertyOptional({ example: 'Uniqlo' })
+  @IsOptional()
+  @IsString()
+  brand?: string;
+
   @ApiProperty()
   @IsString()
   categoryId!: string;
@@ -36,6 +51,14 @@ export class CreateProductDto {
   @ApiProperty({ example: 299000 })
   @IsPositive()
   basePrice!: number;
+
+  @ApiPropertyOptional({
+    example: 249000,
+    description: 'Phải nhỏ hơn basePrice — kiểm tra ở service',
+  })
+  @IsOptional()
+  @IsPositive()
+  salePrice?: number;
 
   @ApiPropertyOptional({ enum: ProductStatus, default: ProductStatus.DRAFT })
   @IsOptional()
@@ -52,6 +75,16 @@ export class CreateProductDto {
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  @ApiPropertyOptional({ example: 'Áo sơ mi nữ tay dài - Uniqlo' })
+  @IsOptional()
+  @IsString()
+  metaTitle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  metaDescription?: string;
 
   @ApiProperty({ type: [CreateProductVariantDto] })
   @IsArray()

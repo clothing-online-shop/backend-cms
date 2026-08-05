@@ -54,6 +54,13 @@ export class ListProductsQueryDto {
   search?: string;
 
   @ApiPropertyOptional({
+    description: 'Lọc theo thương hiệu (contains, không phân biệt hoa thường)',
+  })
+  @IsOptional()
+  @IsString()
+  brand?: string;
+
+  @ApiPropertyOptional({
     enum: ProductStatus,
     description: 'Chỉ áp dụng khi gọi kèm token Admin',
   })
