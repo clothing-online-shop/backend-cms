@@ -118,6 +118,16 @@ model Address {
   @@map("addresses")
 }
 
+model Brand {
+  id        String    @id @default(cuid())
+  name      String
+  deletedAt DateTime?
+
+  products Product[]
+
+  @@map("brands")
+}
+
 model Category {
   id        String     @id @default(cuid())
   name      String
