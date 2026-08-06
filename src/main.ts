@@ -12,6 +12,8 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
+  app.setGlobalPrefix('api/cms');
+
   app.useLogger(app.get(PinoLogger));
   app.use(helmet());
   app.enableCors({
@@ -34,13 +36,15 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  SwaggerModule.setup('api/cms/docs', app, document, {
+    useGlobalPrefix: false,
+  });
 
   const port = process.env.PORT ?? 3002;
   await app.listen(port);
   Logger.log(`🚀 Server running on http://localhost:${port}`, 'Bootstrap');
   Logger.log(
-    `📄 Swagger docs at http://localhost:${port}/api/docs`,
+    `📄 Swagger docs at http://localhost:${port}/api/cms/docs`,
     'Bootstrap',
   );
 }

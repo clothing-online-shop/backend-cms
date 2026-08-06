@@ -19,21 +19,29 @@ Backend API phục vụ **quản trị viên** cho hệ thống Clothing Shop �
 - Passport JWT (access + refresh token) — hash mật khẩu bằng `argon2`
 - Cloudinary SDK (upload ảnh sản phẩm/banner)
 - class-validator / class-transformer cho DTO
-- Swagger (`@nestjs/swagger`) tự sinh doc tại `/api/docs`
+- Swagger (`@nestjs/swagger`) tự sinh doc tại `/api/cms/docs`
 - nestjs-pino cho log có cấu trúc
 
 ## Module & route hiện có
 
 Chỉ giữ lại phần quản trị — mọi route dành riêng khách hàng (đăng ký, quên mật khẩu, giỏ hàng, thanh toán) nằm bên `backend-user`.
 
+Toàn bộ route ở backend này có global prefix `/api/cms` (đặt ở `app.setGlobalPrefix('api/cms')` trong `main.ts`) để phân biệt rõ với API của `backend-user` — bảng dưới đây liệt kê route theo path đã có prefix.
+
+**Toàn bộ route (kể cả `GET`) đều yêu cầu Bearer token hợp lệ** (`@UseGuards(JwtAuthGuard, RolesGuard)` ở cấp controller) — backend này không có API công khai, mọi hiển thị public cho khách hàng nằm ở API riêng của `backend-user` (viết sau). Chỉ ngoại lệ `POST /api/cms/auth/login`, `POST /api/cms/auth/refresh` không cần token vì đó là bước đăng nhập.
+
 | Module | Route | Ghi chú |
 |---|---|---|
-| `auth` | `POST /auth/login` | **Chỉ tài khoản `role = ADMIN`** mới đăng nhập được — tài khoản CUSTOMER bị từ chối (401) dù đúng mật khẩu |
-| | `POST /auth/refresh` | Cấp lại token (dùng `JWT_REFRESH_SECRET` riêng của backend này) |
-| | `GET /auth/me` | Thông tin admin hiện tại |
-| `categories` | `GET /categories`, `GET /categories/:slug`, `POST /categories`, `PATCH /categories/reorder`, `PATCH /categories/:id`, `DELETE /categories/:id` | Đầy đủ CRUD + sắp xếp cây danh mục (route ghi cần Bearer token ADMIN) |
-| `products` | `GET /products`, `GET /products/:slug`, `POST /products`, `PATCH /products/:id`, `DELETE /products/:id` (soft-delete → INACTIVE), `PATCH /products/:id/variants/:variantId/stock` | Đầy đủ CRUD + quản lý variants (size/màu/SKU/giá/tồn kho) |
-| `upload` | `POST /upload/image`, `DELETE /upload/image/:publicId` | Upload/xóa ảnh qua Cloudinary — toàn bộ route yêu cầu role ADMIN |
+| `auth` | `POST /api/cms/auth/login` | Không cần token. **Chỉ tài khoản `role = ADMIN/WAREHOUSE_STAFF/MARKETING`** mới đăng nhập được — tài khoản CUSTOMER bị từ chối (401) dù đúng mật khẩu |
+| | `POST /api/cms/auth/refresh` | Không cần token — cấp lại access/refresh token (dùng `JWT_REFRESH_SECRET` riêng của backend này) |
+| | `GET /api/cms/auth/me` | Cần Bearer token — thông tin admin hiện tại |
+| `categories` | `GET /api/cms/categories`, `GET /api/cms/categories/:slug` | Cần Bearer token, mọi role CMS (ADMIN/WAREHOUSE_STAFF/MARKETING) đều đọc được |
+| | `POST /api/cms/categories`, `PATCH /api/cms/categories/reorder`, `PATCH /api/cms/categories/:id`, `DELETE /api/cms/categories/:id` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
+| `products` | `GET /api/cms/products`, `GET /api/cms/products/:slug` | Cần Bearer token, mọi role CMS đều đọc được |
+| | `POST /api/cms/products`, `PATCH /api/cms/products/:id`, `DELETE /api/cms/products/:id` (soft-delete → INACTIVE), `PATCH /api/cms/products/:id/variants/:variantId/stock` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
+| `brands` | `GET /api/cms/brands`, `GET /api/cms/brands/:id` | Cần Bearer token, mọi role CMS đều đọc được |
+| | `POST /api/cms/brands`, `PATCH /api/cms/brands/:id`, `DELETE /api/cms/brands/:id` | Cần Bearer token role ADMIN |
+| `upload` | `POST /api/cms/upload/image`, `DELETE /api/cms/upload/image/:publicId` | Cần Bearer token, mọi role CMS |
 | `orders` | *(chưa có route)* | Scaffold cho tính năng xem toàn bộ đơn hàng + cập nhật trạng thái, triển khai sau |
 | `cms` | *(chưa có route)* | Scaffold cho banner/blog/trang tĩnh, triển khai sau |
 | `users` | *(không có route public)* | Chỉ tồn tại như dependency nội bộ để `auth` tra cứu user khi login — không phải domain quản lý user ở backend này |
@@ -64,7 +72,7 @@ pnpm seed
 pnpm dev
 ```
 
-Server chạy ở `http://localhost:3002`, Swagger docs tại `http://localhost:3002/api/docs`, health check tại `http://localhost:3002/health`.
+Server chạy ở `http://localhost:3002`, Swagger docs tại `http://localhost:3002/api/cms/docs`, health check tại `http://localhost:3002/api/cms/health`.
 
 ## Biến môi trường (`.env`)
 
