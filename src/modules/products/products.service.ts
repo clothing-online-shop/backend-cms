@@ -520,6 +520,8 @@ function toListItem(product: ProductWithStockVariants) {
     id: product.id,
     name: product.name,
     slug: product.slug,
+    description: product.description,
+    material: product.material,
     thumbnail: product.thumbnail,
     basePrice: product.basePrice.toNumber(),
     salePrice: product.salePrice?.toNumber() ?? null,
