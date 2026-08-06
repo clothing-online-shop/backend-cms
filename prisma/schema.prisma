@@ -141,23 +141,25 @@ model Category {
 }
 
 model Product {
-  id               String        @id @default(cuid())
-  name             String
-  slug             String        @unique
-  description      String?
-  material         String?
-  careInstructions String?
-  brandId          String?
-  categoryId       String
-  basePrice        Decimal       @db.Decimal(12, 2)
-  salePrice        Decimal?      @db.Decimal(12, 2)
-  status           ProductStatus @default(DRAFT)
-  thumbnail        String?
-  images           String[]      @default([])
-  metaTitle        String?
-  metaDescription  String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                String        @id @default(cuid())
+  name              String
+  slug              String        @unique
+  description       String?
+  material          String?
+  careInstructions  String?
+  brandId           String?
+  categoryId        String
+  basePrice         Decimal       @db.Decimal(12, 2)
+  salePrice         Decimal?      @db.Decimal(12, 2)
+  status            ProductStatus @default(DRAFT)
+  thumbnail         String?
+  thumbnailPublicId String?
+  images            String[]      @default([])
+  imagePublicIds    String[]      @default([])
+  metaTitle         String?
+  metaDescription   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   category Category         @relation(fields: [categoryId], references: [id])
   brand    Brand?           @relation(fields: [brandId], references: [id])
