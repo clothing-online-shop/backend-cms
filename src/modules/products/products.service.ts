@@ -209,7 +209,10 @@ export class ProductsService {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
 
-    if (dto.categoryId) {
+    if (dto.categoryId !== undefined) {
+      if (!dto.categoryId) {
+        throw new BadRequestException('categoryId không được để trống');
+      }
       await this.assertCategoryExists(dto.categoryId);
     }
 

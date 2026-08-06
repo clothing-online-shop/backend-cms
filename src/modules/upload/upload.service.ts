@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -77,6 +78,12 @@ export class UploadService {
 
   async deleteImage(publicId: string): Promise<void> {
     this.assertConfigured();
+    // publicId do client tự truyền lên — nếu không giới hạn trong đúng folder của app,
+    // 1 tài khoản admin-panel bất kỳ (kể cả role thấp như MARKETING) có thể xóa bất kỳ
+    // asset nào trong cả tài khoản Cloudinary (chung account có thể có project khác).
+    if (!publicId.startsWith(`${UPLOAD_FOLDER}/`)) {
+      throw new BadRequestException('publicId không hợp lệ');
+    }
     await cloudinary.uploader.destroy(publicId);
   }
 

@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { User } from '@prisma/client';
+import { User, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { UsersService } from '../users/users.service';
 import { isAdminPanelRole } from '../../common/constants/admin-panel-roles';
@@ -38,6 +38,10 @@ export class AuthService {
 
     if (!isAdminPanelRole(user.role)) {
       throw new UnauthorizedException('Tài khoản không có quyền quản trị');
+    }
+
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc vô hiệu hóa');
     }
 
     const tokens = await this.issueTokens(user);
@@ -82,6 +86,10 @@ export class AuthService {
     const user = await this.usersService.findById(payload.sub);
     if (!user || !isAdminPanelRole(user.role)) {
       throw new UnauthorizedException('Người dùng không tồn tại');
+    }
+
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc vô hiệu hóa');
     }
 
     await this.prisma.refreshToken.update({

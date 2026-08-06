@@ -126,6 +126,11 @@ export class CategoriesService {
       if (!parentMap.has(item.id)) {
         throw new NotFoundException(`Không tìm thấy danh mục ${item.id}`);
       }
+      if (item.parentId && !parentMap.has(item.parentId)) {
+        throw new NotFoundException(
+          `Không tìm thấy danh mục cha ${item.parentId}`,
+        );
+      }
       if (item.parentId !== undefined) {
         parentMap.set(item.id, item.parentId);
       }
