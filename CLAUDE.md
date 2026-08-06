@@ -63,6 +63,18 @@ src/modules/<ten-module>/
 - Auth, Orders, Payments là 3 module bắt buộc phải có test (unit cho service, e2e cho luồng chính) trước khi coi là "xong" — đây là các luồng liên quan tiền/đơn hàng, lỗi ở đây ảnh hưởng trực tiếp khách hàng.
 - Chạy `pnpm --filter @clothing-shop/be test` trước khi coi 1 module là hoàn thành.
 
+## Sau khi pull code (trước khi code tiếp)
+
+Bỏ qua bước nào trong đây dễ dính lỗi kiểu "TS báo field/enum không tồn tại dù schema đã có" hoặc `EPERM` khi generate — đã gặp thật, không phải phòng hờ lý thuyết.
+
+1. `pnpm install` nếu `package.json`/`pnpm-lock.yaml` đổi.
+2. So `.env.example` với `.env` của mình, thêm biến còn thiếu — `.env` không tự đồng bộ theo `.env.example` khi pull.
+3. **Tắt hẳn dev server đang chạy trước khi làm bước 4** — trên Windows, Node đang chạy giữ khoá file `query_engine-windows.dll.node`, `prisma generate`/`migrate` sẽ báo `EPERM` nếu chưa tắt.
+4. `npx prisma migrate dev` — áp dụng migration mới + tự generate lại Prisma Client (bắt buộc mỗi khi `schema.prisma` đổi, kể cả khi không có migration mới, vì TypeScript vẫn dùng type Client cũ nếu không generate lại).
+5. `pnpm start:dev` lại.
+
+Gộp nhanh: `git pull && pnpm install && npx prisma migrate dev && pnpm start:dev` (nhớ tắt server cũ trước).
+
 ## Trước khi mở PR
 
 1. `pnpm --filter @clothing-shop/be lint` — 0 lỗi.

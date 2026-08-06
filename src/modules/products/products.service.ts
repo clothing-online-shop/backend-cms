@@ -28,14 +28,12 @@ const DEFAULT_PAGE_LIMIT = 20;
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: ListProductsQueryDto, isAdmin: boolean) {
+  async findAll(query: ListProductsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? DEFAULT_PAGE_LIMIT;
 
     const where: Prisma.ProductWhereInput = {};
-    if (!isAdmin) {
-      where.status = ProductStatus.ACTIVE;
-    } else if (query.status) {
+    if (query.status) {
       where.status = query.status;
     }
 
@@ -100,7 +98,7 @@ export class ProductsService {
     };
   }
 
-  async findBySlug(slug: string, isAdmin: boolean) {
+  async findBySlug(slug: string) {
     const product = await this.prisma.product.findUnique({
       where: { slug },
       include: {
@@ -111,7 +109,7 @@ export class ProductsService {
       },
     });
 
-    if (!product || (!isAdmin && product.status !== ProductStatus.ACTIVE)) {
+    if (!product) {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
 

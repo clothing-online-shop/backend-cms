@@ -20,17 +20,21 @@ import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { ADMIN_PANEL_ROLES } from '../../common/constants/admin-panel-roles';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 
 @ApiTags('categories')
+@ApiBearerAuth()
 @Controller('categories')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Get()
+  @Roles(...ADMIN_PANEL_ROLES)
   @ApiOperation({ summary: 'Lấy cây danh mục' })
   @ApiQuery({
     name: 'includeInactive',
@@ -44,14 +48,13 @@ export class CategoriesController {
   }
 
   @Get(':slug')
+  @Roles(...ADMIN_PANEL_ROLES)
   @ApiOperation({ summary: 'Chi tiết 1 danh mục theo slug' })
   findBySlug(@Param('slug') slug: string) {
     return this.categoriesService.findBySlug(slug);
   }
 
   @Post()
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Tạo danh mục mới (Admin)' })
   create(@Body() dto: CreateCategoryDto) {
@@ -59,8 +62,6 @@ export class CategoriesController {
   }
 
   @Patch('reorder')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Sắp xếp lại thứ tự/cha-con danh mục (Admin)' })
   reorder(@Body() dto: ReorderCategoriesDto) {
@@ -68,8 +69,6 @@ export class CategoriesController {
   }
 
   @Patch(':id')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Cập nhật danh mục (Admin)' })
   update(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
@@ -77,8 +76,6 @@ export class CategoriesController {
   }
 
   @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Xóa danh mục (Admin, chặn nếu còn sản phẩm/con)' })
   remove(@Param('id') id: string) {
