@@ -70,11 +70,29 @@ export class CreateProductDto {
   @IsString()
   thumbnail?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Cloudinary publicId của thumbnail, dùng để xóa ảnh cũ khi thay ảnh',
+  })
+  @IsOptional()
+  @IsString()
+  thumbnailPublicId?: string;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Cloudinary publicId của từng ảnh trong images, cùng thứ tự — dùng để xóa ảnh cũ khi bớt ảnh',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  imagePublicIds?: string[];
 
   @ApiPropertyOptional({ example: 'Áo sơ mi nữ tay dài - Uniqlo' })
   @IsOptional()
