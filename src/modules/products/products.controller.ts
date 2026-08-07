@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ADMIN_PANEL_ROLES } from '../../common/constants/admin-panel-roles';
+import { ProductStatus } from './product-status.enum';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -61,7 +62,7 @@ export class ProductsController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: ['DRAFT', 'ACTIVE', 'INACTIVE'],
+    enum: ProductStatus,
   })
   @ApiQuery({
     name: 'sort',
@@ -104,7 +105,7 @@ export class ProductsController {
   @Delete(':id')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({
-    summary: 'Soft delete sản phẩm (chuyển status INACTIVE) (Admin)',
+    summary: 'Xóa vĩnh viễn sản phẩm khỏi DB (Admin)',
   })
   remove(@Param('id') id: string) {
     return this.productsService.remove(id);

@@ -41,12 +41,6 @@ enum DiscountType {
   FIXED_AMOUNT
 }
 
-enum ProductStatus {
-  DRAFT
-  ACTIVE
-  INACTIVE
-}
-
 enum StockMovementType {
   IMPORT
   EXPORT
@@ -151,7 +145,7 @@ model Product {
   categoryId        String
   basePrice         Decimal       @db.Decimal(12, 2)
   salePrice         Decimal?      @db.Decimal(12, 2)
-  status            ProductStatus @default(DRAFT)
+  status            Int           @default(0)
   thumbnail         String?
   thumbnailPublicId String?
   images            String[]      @default([])

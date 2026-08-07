@@ -9,7 +9,7 @@ import {
   IsString,
   Min,
 } from 'class-validator';
-import { ProductStatus } from '@prisma/client';
+import { ProductStatus } from '../product-status.enum';
 
 export const PRODUCT_SORT_VALUES = [
   'price_asc',
@@ -63,6 +63,7 @@ export class ListProductsQueryDto {
     description: 'Chỉ áp dụng khi gọi kèm token Admin',
   })
   @IsOptional()
+  @Type(() => Number)
   @IsEnum(ProductStatus)
   status?: ProductStatus;
 
