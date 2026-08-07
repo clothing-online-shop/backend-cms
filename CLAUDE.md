@@ -43,6 +43,7 @@ src/modules/<ten-module>/
 ## Database (Prisma)
 
 - Mọi thay đổi schema đi qua `prisma/schema.prisma` rồi chạy `pnpm --filter @clothing-shop/be prisma:migrate` (`prisma migrate dev --name <mo-ta-thay-doi>`) — không sửa tay migration đã áp dụng, không sửa DB trực tiếp qua pgAdmin cho thay đổi cấu trúc.
+- Môi trường deploy (Render...) chạy `start:prod` = `prisma migrate deploy && node dist/main` — mọi migration mới tự áp vào DB thật trước khi server nhận request, không cần SSH/chạy tay `prisma migrate deploy` sau mỗi lần deploy. Nếu đổi Start Command trên Render dashboard, phải giữ nguyên `prisma migrate deploy` ở đầu, không chỉ chạy thẳng `node dist/main`.
 - Không import `@prisma/client` trực tiếp trong service để tạo `PrismaClient` mới — luôn inject `PrismaService` (đã được `PrismaModule` quản lý lifecycle connect/disconnect).
 - Đặt tên bảng (`@@map`) theo snake_case số nhiều (`users`, `product_variants`) như đã có, giữ nhất quán khi thêm bảng mới.
 - Quan hệ 1-nhiều/n-n phải có `@@index` trên khóa ngoại hay dùng (xem các model hiện tại làm mẫu).
