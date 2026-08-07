@@ -159,6 +159,7 @@ export class ProductsService {
     assertNoDuplicateVariants(dto.variants);
     await this.assertCategoryExists(dto.categoryId);
     this.assertValidSalePrice(dto.salePrice, dto.basePrice);
+    assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
     const usedSkus = new Set<string>();
@@ -241,12 +242,7 @@ export class ProductsService {
         ? dto.salePrice
         : existing.salePrice?.toNumber();
     this.assertValidSalePrice(effectiveSalePrice, basePrice);
-
-    // Best-effort: lỗi xóa ảnh cũ trên Cloudinary không được chặn việc lưu sản
-    // phẩm — ảnh cũ mồ côi còn hơn admin không sửa được sản phẩm vì Cloudinary
-    // tạm lỗi. Chạy trước transaction vì đây là gọi API ngoài, không nên nằm
-    // trong transaction DB.
-    await this.cleanupRemovedProductAssets(existing, dto);
+    assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.product.update({
@@ -282,6 +278,14 @@ export class ProductsService {
         );
       }
     });
+
+    // Best-effort, chạy SAU khi transaction DB đã commit thành công — dọn trước
+    // transaction thì nếu transaction rollback (vd syncVariants ném ConflictException
+    // vì biến thể đã có trong đơn hàng), ảnh cũ đã bị xoá vĩnh viễn trên Cloudinary dù
+    // update "thất bại", trong khi DB vẫn đang trỏ tới URL đã chết. Lỗi xoá ảnh cũ ở
+    // đây không được chặn response thành công — ảnh mồ côi còn hơn admin tưởng lưu
+    // thất bại trong khi dữ liệu đã đổi.
+    await this.cleanupRemovedProductAssets(existing, dto);
 
     return this.prisma.product.findUniqueOrThrow({
       where: { id },
@@ -572,6 +576,24 @@ function assertNoDuplicateVariants(
       );
     }
     seen.add(key);
+  }
+}
+
+// images[i] và imagePublicIds[i] phải luôn cùng vị trí (DB không có bảng ảnh riêng để
+// tra publicId theo url) — nếu 2 mảng lệch độ dài, lần cleanupRemovedProductAssets sau
+// sẽ tra publicId sai vị trí, có thể xoá nhầm ảnh đang dùng thật trên Cloudinary.
+function assertImagesPublicIdsAligned(
+  images: string[] | undefined,
+  imagePublicIds: string[] | undefined,
+): void {
+  if (
+    images !== undefined &&
+    imagePublicIds !== undefined &&
+    images.length !== imagePublicIds.length
+  ) {
+    throw new BadRequestException(
+      'images và imagePublicIds phải có cùng số lượng phần tử',
+    );
   }
 }
 
