@@ -423,10 +423,10 @@ export class ProductsService {
   }
 
   private assertValidSalePrice(
-    salePrice: number | undefined,
+    salePrice: number | null | undefined,
     basePrice: number,
   ): void {
-    if (salePrice !== undefined && salePrice >= basePrice) {
+    if (salePrice != null && salePrice >= basePrice) {
       throw new BadRequestException('Giá khuyến mãi phải nhỏ hơn giá gốc');
     }
   }

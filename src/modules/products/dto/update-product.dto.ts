@@ -1,11 +1,17 @@
 import { ApiPropertyOptional, PartialType, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsOptional,
+  IsPositive,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 import { CreateProductDto } from './create-product.dto';
 import { UpdateProductVariantDto } from './product-variant.dto';
 
 export class UpdateProductDto extends PartialType(
-  OmitType(CreateProductDto, ['variants', 'brandId'] as const),
+  OmitType(CreateProductDto, ['variants', 'brandId', 'salePrice'] as const),
 ) {
   @ApiPropertyOptional({
     description:
@@ -15,6 +21,16 @@ export class UpdateProductDto extends PartialType(
   @IsOptional()
   @IsString()
   brandId?: string | null;
+
+  @ApiPropertyOptional({
+    example: 249000,
+    description:
+      'Giá khuyến mãi, phải nhỏ hơn basePrice. Bỏ trống field này = giữ nguyên; gửi null = xóa giá khuyến mãi (không giảm giá nữa)',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsPositive()
+  salePrice?: number | null;
 
   @ApiPropertyOptional({ type: [UpdateProductVariantDto] })
   @IsOptional()
