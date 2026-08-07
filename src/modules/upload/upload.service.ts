@@ -76,6 +76,30 @@ export class UploadService {
     return { url: result.secure_url, publicId: result.public_id };
   }
 
+  async uploadVideo(file: Express.Multer.File): Promise<UploadResult> {
+    this.assertConfigured();
+
+    const result = await new Promise<UploadApiResponse>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        { folder: UPLOAD_FOLDER, resource_type: 'video' },
+        (error, uploadResult) => {
+          if (error || !uploadResult) {
+            reject(
+              error instanceof Error
+                ? error
+                : new Error(error?.message ?? 'Upload video thất bại'),
+            );
+            return;
+          }
+          resolve(uploadResult);
+        },
+      );
+      stream.end(file.buffer);
+    });
+
+    return { url: result.secure_url, publicId: result.public_id };
+  }
+
   async deleteImage(publicId: string): Promise<void> {
     this.assertConfigured();
     // publicId do client tự truyền lên — nếu không giới hạn trong đúng folder của app,
@@ -85,6 +109,13 @@ export class UploadService {
       throw new BadRequestException('publicId không hợp lệ');
     }
     await cloudinary.uploader.destroy(publicId);
+  }
+
+  // Cloudinary yêu cầu đúng resource_type khi xoá — dùng nhầm resource_type mặc
+  // định (image) để xoá video sẽ âm thầm không xoá được gì (trả not found).
+  async deleteVideo(publicId: string): Promise<void> {
+    this.assertConfigured();
+    await cloudinary.uploader.destroy(publicId, { resource_type: 'video' });
   }
 
   private assertConfigured(): void {

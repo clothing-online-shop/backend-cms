@@ -7,6 +7,7 @@ import {
 import { Prisma, Product, ProductStatus, ProductVariant } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
+import { UploadService } from '../upload/upload.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductVariantDto } from './dto/product-variant.dto';
@@ -26,7 +27,10 @@ const DEFAULT_PAGE_LIMIT = 20;
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   async findAll(query: ListProductsQueryDto) {
     const page = query.page ?? 1;
@@ -131,6 +135,7 @@ export class ProductsService {
       metaTitle: product.metaTitle,
       metaDescription: product.metaDescription,
       images: product.images,
+      imagePublicIds: product.imagePublicIds,
       category: {
         id: product.category.id,
         name: product.category.name,
@@ -188,7 +193,9 @@ export class ProductsService {
         salePrice: dto.salePrice,
         status: dto.status ?? ProductStatus.DRAFT,
         thumbnail: dto.thumbnail,
+        thumbnailPublicId: dto.thumbnailPublicId,
         images: dto.images ?? [],
+        imagePublicIds: dto.imagePublicIds ?? [],
         metaTitle: dto.metaTitle,
         metaDescription: dto.metaDescription,
         variants: { create: variantsData },
@@ -232,6 +239,12 @@ export class ProductsService {
         : existing.salePrice?.toNumber();
     this.assertValidSalePrice(effectiveSalePrice, basePrice);
 
+    // Best-effort: lỗi xóa ảnh cũ trên Cloudinary không được chặn việc lưu sản
+    // phẩm — ảnh cũ mồ côi còn hơn admin không sửa được sản phẩm vì Cloudinary
+    // tạm lỗi. Chạy trước transaction vì đây là gọi API ngoài, không nên nằm
+    // trong transaction DB.
+    await this.cleanupRemovedProductAssets(existing, dto);
+
     await this.prisma.$transaction(async (tx) => {
       await tx.product.update({
         where: { id },
@@ -247,7 +260,9 @@ export class ProductsService {
           salePrice: dto.salePrice,
           status: dto.status,
           thumbnail: dto.thumbnail,
+          thumbnailPublicId: dto.thumbnailPublicId,
           images: dto.images,
+          imagePublicIds: dto.imagePublicIds,
           metaTitle: dto.metaTitle,
           metaDescription: dto.metaDescription,
         },
@@ -400,6 +415,39 @@ export class ProductsService {
     }
   }
 
+  // Xóa trên Cloudinary các ảnh không còn xuất hiện trong thumbnail/images mới —
+  // dựa vào publicId lưu cùng vị trí với images cũ (existing.imagePublicIds[i]
+  // là publicId của existing.images[i]) vì DB không có bảng ảnh riêng.
+  private async cleanupRemovedProductAssets(
+    existing: Product,
+    dto: UpdateProductDto,
+  ): Promise<void> {
+    const removedPublicIds: string[] = [];
+
+    if (
+      dto.thumbnail !== undefined &&
+      dto.thumbnail !== existing.thumbnail &&
+      existing.thumbnailPublicId
+    ) {
+      removedPublicIds.push(existing.thumbnailPublicId);
+    }
+
+    if (dto.images !== undefined) {
+      const nextImages = new Set(dto.images);
+      existing.images.forEach((url, index) => {
+        if (nextImages.has(url)) return;
+        const publicId = existing.imagePublicIds[index];
+        if (publicId) removedPublicIds.push(publicId);
+      });
+    }
+
+    await Promise.all(
+      removedPublicIds.map((publicId) =>
+        this.uploadService.deleteImage(publicId).catch(() => undefined),
+      ),
+    );
+  }
+
   private async resolveCategoryIds(slugOrId: string): Promise<string[]> {
     const category = await this.prisma.category.findFirst({
       where: { OR: [{ slug: slugOrId }, { id: slugOrId }] },
@@ -523,6 +571,7 @@ function toListItem(product: ProductWithStockVariants) {
     description: product.description,
     material: product.material,
     thumbnail: product.thumbnail,
+    thumbnailPublicId: product.thumbnailPublicId,
     basePrice: product.basePrice.toNumber(),
     salePrice: product.salePrice?.toNumber() ?? null,
     brandId: product.brandId,
