@@ -4,10 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Product, ProductStatus, ProductVariant } from '@prisma/client';
+import { Prisma, Product, ProductVariant } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
 import { UploadService } from '../upload/upload.service';
+import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductVariantDto } from './dto/product-variant.dto';
@@ -37,7 +38,9 @@ export class ProductsService {
     const limit = query.limit ?? DEFAULT_PAGE_LIMIT;
 
     const where: Prisma.ProductWhereInput = {};
-    if (query.status) {
+    // Không dùng `if (query.status)` — ProductStatus.DRAFT giờ là 0 (falsy), filter theo
+    // "Nháp" sẽ bị bỏ qua nhầm như không lọc gì nếu chỉ check truthy.
+    if (query.status !== undefined) {
       where.status = query.status;
     }
 
@@ -156,6 +159,7 @@ export class ProductsService {
     assertNoDuplicateVariants(dto.variants);
     await this.assertCategoryExists(dto.categoryId);
     this.assertValidSalePrice(dto.salePrice, dto.basePrice);
+    assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
     const usedSkus = new Set<string>();
@@ -216,7 +220,10 @@ export class ProductsService {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
 
-    if (dto.categoryId) {
+    if (dto.categoryId !== undefined) {
+      if (!dto.categoryId) {
+        throw new BadRequestException('categoryId không được để trống');
+      }
       await this.assertCategoryExists(dto.categoryId);
     }
 
@@ -235,12 +242,7 @@ export class ProductsService {
         ? dto.salePrice
         : existing.salePrice?.toNumber();
     this.assertValidSalePrice(effectiveSalePrice, basePrice);
-
-    // Best-effort: lỗi xóa ảnh cũ trên Cloudinary không được chặn việc lưu sản
-    // phẩm — ảnh cũ mồ côi còn hơn admin không sửa được sản phẩm vì Cloudinary
-    // tạm lỗi. Chạy trước transaction vì đây là gọi API ngoài, không nên nằm
-    // trong transaction DB.
-    await this.cleanupRemovedProductAssets(existing, dto);
+    assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.product.update({
@@ -277,6 +279,14 @@ export class ProductsService {
       }
     });
 
+    // Best-effort, chạy SAU khi transaction DB đã commit thành công — dọn trước
+    // transaction thì nếu transaction rollback (vd syncVariants ném ConflictException
+    // vì biến thể đã có trong đơn hàng), ảnh cũ đã bị xoá vĩnh viễn trên Cloudinary dù
+    // update "thất bại", trong khi DB vẫn đang trỏ tới URL đã chết. Lỗi xoá ảnh cũ ở
+    // đây không được chặn response thành công — ảnh mồ côi còn hơn admin tưởng lưu
+    // thất bại trong khi dữ liệu đã đổi.
+    await this.cleanupRemovedProductAssets(existing, dto);
+
     return this.prisma.product.findUniqueOrThrow({
       where: { id },
       include: { variants: true },
@@ -288,10 +298,19 @@ export class ProductsService {
     if (!existing) {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
-    await this.prisma.product.update({
-      where: { id },
-      data: { status: ProductStatus.INACTIVE },
-    });
+    try {
+      await this.prisma.product.delete({ where: { id } });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+      ) {
+        throw new ConflictException(
+          'Không thể xóa sản phẩm vì đã có biến thể được dùng trong đơn hàng/giỏ hàng',
+        );
+      }
+      throw err;
+    }
   }
 
   async updateVariantStock(
@@ -404,10 +423,10 @@ export class ProductsService {
   }
 
   private assertValidSalePrice(
-    salePrice: number | undefined,
+    salePrice: number | null | undefined,
     basePrice: number,
   ): void {
-    if (salePrice !== undefined && salePrice >= basePrice) {
+    if (salePrice != null && salePrice >= basePrice) {
       throw new BadRequestException('Giá khuyến mãi phải nhỏ hơn giá gốc');
     }
   }
@@ -560,11 +579,31 @@ function assertNoDuplicateVariants(
   }
 }
 
+// images[i] và imagePublicIds[i] phải luôn cùng vị trí (DB không có bảng ảnh riêng để
+// tra publicId theo url) — nếu 2 mảng lệch độ dài, lần cleanupRemovedProductAssets sau
+// sẽ tra publicId sai vị trí, có thể xoá nhầm ảnh đang dùng thật trên Cloudinary.
+function assertImagesPublicIdsAligned(
+  images: string[] | undefined,
+  imagePublicIds: string[] | undefined,
+): void {
+  if (
+    images !== undefined &&
+    imagePublicIds !== undefined &&
+    images.length !== imagePublicIds.length
+  ) {
+    throw new BadRequestException(
+      'images và imagePublicIds phải có cùng số lượng phần tử',
+    );
+  }
+}
+
 function toListItem(product: ProductWithStockVariants) {
   return {
     id: product.id,
     name: product.name,
     slug: product.slug,
+    description: product.description,
+    material: product.material,
     thumbnail: product.thumbnail,
     thumbnailPublicId: product.thumbnailPublicId,
     basePrice: product.basePrice.toNumber(),

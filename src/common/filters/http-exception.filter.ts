@@ -24,12 +24,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
       : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const exceptionResponse = isHttpException ? exception.getResponse() : null;
+    // Với lỗi không phải HttpException (Prisma, TypeError...), không được lộ
+    // message nội bộ (tên bảng/field, câu lệnh SQL...) ra response cho client —
+    // chi tiết thật đã được log ở logger.error bên dưới.
     const message =
       exceptionResponse &&
       typeof exceptionResponse === 'object' &&
       'message' in exceptionResponse
         ? (exceptionResponse as Record<string, unknown>).message
-        : (exception as Error)?.message || 'Internal server error';
+        : 'Internal server error';
 
     const error =
       exceptionResponse &&

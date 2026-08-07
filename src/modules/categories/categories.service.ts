@@ -94,15 +94,8 @@ export class CategoriesService {
 
     const imageChanged =
       dto.image !== undefined && dto.image !== existing.image;
-    if (imageChanged && existing.imagePublicId) {
-      // Best-effort: lỗi xóa ảnh cũ trên Cloudinary không được chặn việc lưu danh mục —
-      // ảnh cũ mồ côi còn hơn admin không sửa được danh mục vì Cloudinary tạm lỗi.
-      await this.uploadService
-        .deleteImage(existing.imagePublicId)
-        .catch(() => undefined);
-    }
 
-    return this.prisma.category.update({
+    const updated = await this.prisma.category.update({
       where: { id },
       data: {
         name: dto.name,
@@ -115,6 +108,18 @@ export class CategoriesService {
         sortOrder: dto.sortOrder,
       },
     });
+
+    // Best-effort, chạy SAU khi update DB đã thành công — dọn trước mà update sau đó
+    // lỗi (constraint, mất kết nối DB...) thì ảnh cũ đã bị xoá vĩnh viễn trên Cloudinary
+    // trong khi DB vẫn còn trỏ tới URL đã chết. Lỗi xóa ảnh cũ ở đây không được chặn
+    // response thành công — ảnh mồ côi còn hơn admin tưởng lưu thất bại.
+    if (imageChanged && existing.imagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.imagePublicId)
+        .catch(() => undefined);
+    }
+
+    return updated;
   }
 
   async remove(id: string): Promise<void> {
