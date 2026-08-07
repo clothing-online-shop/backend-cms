@@ -31,6 +31,9 @@ const ALLOWED_MIME_TYPES = [
   'image/webp',
 ];
 
+const MAX_VIDEO_SIZE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/webm'];
+
 @ApiTags('upload')
 @ApiBearerAuth()
 @Controller('upload')
@@ -82,5 +85,50 @@ export class UploadController {
   @ApiOperation({ summary: 'Xóa ảnh trên Cloudinary theo publicId (Admin)' })
   deleteImage(@Param('publicId') publicId: string) {
     return this.uploadService.deleteImage(publicId);
+  }
+
+  @Post('video')
+  @ApiOperation({
+    summary: 'Upload video lên Cloudinary (Admin, tối đa 10MB, mp4/webm)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Trả về url và publicId của video trên Cloudinary',
+  })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_VIDEO_SIZE_BYTES },
+      fileFilter: (_req, file, callback) => {
+        if (!ALLOWED_VIDEO_MIME_TYPES.includes(file.mimetype)) {
+          callback(
+            new BadRequestException(
+              'Chỉ chấp nhận video định dạng .mp4, .webm',
+            ),
+            false,
+          );
+          return;
+        }
+        callback(null, true);
+      },
+    }),
+  )
+  uploadVideo(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Vui lòng chọn file video để upload');
+    }
+    return this.uploadService.uploadVideo(file);
+  }
+
+  @Delete('video/:publicId')
+  @ApiOperation({ summary: 'Xóa video trên Cloudinary theo publicId (Admin)' })
+  deleteVideo(@Param('publicId') publicId: string) {
+    return this.uploadService.deleteVideo(publicId);
   }
 }

@@ -4,6 +4,8 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUrl,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 
@@ -11,6 +13,7 @@ export class CreateCategoryDto {
   @ApiProperty({ example: 'Áo nam' })
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   name!: string;
 
   @ApiPropertyOptional({
@@ -26,10 +29,19 @@ export class CreateCategoryDto {
   @IsString()
   parentId?: string | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsUrl()
+  image?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Cloudinary publicId của ảnh, dùng để xóa ảnh cũ khi thay/xóa ảnh',
+  })
   @IsOptional()
   @IsString()
-  image?: string;
+  imagePublicId?: string | null;
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()

@@ -36,7 +36,7 @@ Toàn bộ route ở backend này có global prefix `/api/cms` (đặt ở `app.
 | | `POST /api/cms/auth/refresh` | Không cần token — cấp lại access/refresh token (dùng `JWT_REFRESH_SECRET` riêng của backend này) |
 | | `GET /api/cms/auth/me` | Cần Bearer token — thông tin admin hiện tại |
 | `categories` | `GET /api/cms/categories`, `GET /api/cms/categories/:slug` | Cần Bearer token, mọi role CMS (ADMIN/WAREHOUSE_STAFF/MARKETING) đều đọc được |
-| | `POST /api/cms/categories`, `PATCH /api/cms/categories/reorder`, `PATCH /api/cms/categories/:id`, `DELETE /api/cms/categories/:id` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
+| | `POST /api/cms/categories`, `PATCH /api/cms/categories/reorder`, `PATCH /api/cms/categories/:id`, `DELETE /api/cms/categories/:id` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF. Cây danh mục tối đa **3 cấp** (chặn ở cả create/update/reorder). Ảnh danh mục lưu kèm `imagePublicId` — tự xóa ảnh cũ trên Cloudinary khi thay/xóa ảnh hoặc xóa danh mục (best-effort, không chặn request nếu Cloudinary lỗi) |
 | `products` | `GET /api/cms/products`, `GET /api/cms/products/:slug` | Cần Bearer token, mọi role CMS đều đọc được |
 | | `POST /api/cms/products`, `PATCH /api/cms/products/:id` (đổi `status` để khóa/mở khóa bán), `DELETE /api/cms/products/:id` (xóa vĩnh viễn khỏi DB), `PATCH /api/cms/products/:id/variants/:variantId/stock` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
 | `brands` | `GET /api/cms/brands`, `GET /api/cms/brands/:id` | Cần Bearer token, mọi role CMS đều đọc được |

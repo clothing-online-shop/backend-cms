@@ -7,6 +7,7 @@ import {
 import { Prisma, Product, ProductVariant } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
+import { UploadService } from '../upload/upload.service';
 import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -27,7 +28,10 @@ const DEFAULT_PAGE_LIMIT = 20;
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   async findAll(query: ListProductsQueryDto) {
     const page = query.page ?? 1;
@@ -134,6 +138,7 @@ export class ProductsService {
       metaTitle: product.metaTitle,
       metaDescription: product.metaDescription,
       images: product.images,
+      imagePublicIds: product.imagePublicIds,
       category: {
         id: product.category.id,
         name: product.category.name,
@@ -154,6 +159,7 @@ export class ProductsService {
     assertNoDuplicateVariants(dto.variants);
     await this.assertCategoryExists(dto.categoryId);
     this.assertValidSalePrice(dto.salePrice, dto.basePrice);
+    assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
     const usedSkus = new Set<string>();
@@ -191,7 +197,9 @@ export class ProductsService {
         salePrice: dto.salePrice,
         status: dto.status ?? ProductStatus.DRAFT,
         thumbnail: dto.thumbnail,
+        thumbnailPublicId: dto.thumbnailPublicId,
         images: dto.images ?? [],
+        imagePublicIds: dto.imagePublicIds ?? [],
         metaTitle: dto.metaTitle,
         metaDescription: dto.metaDescription,
         variants: { create: variantsData },
@@ -234,6 +242,7 @@ export class ProductsService {
         ? dto.salePrice
         : existing.salePrice?.toNumber();
     this.assertValidSalePrice(effectiveSalePrice, basePrice);
+    assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.product.update({
@@ -250,7 +259,9 @@ export class ProductsService {
           salePrice: dto.salePrice,
           status: dto.status,
           thumbnail: dto.thumbnail,
+          thumbnailPublicId: dto.thumbnailPublicId,
           images: dto.images,
+          imagePublicIds: dto.imagePublicIds,
           metaTitle: dto.metaTitle,
           metaDescription: dto.metaDescription,
         },
@@ -267,6 +278,14 @@ export class ProductsService {
         );
       }
     });
+
+    // Best-effort, chạy SAU khi transaction DB đã commit thành công — dọn trước
+    // transaction thì nếu transaction rollback (vd syncVariants ném ConflictException
+    // vì biến thể đã có trong đơn hàng), ảnh cũ đã bị xoá vĩnh viễn trên Cloudinary dù
+    // update "thất bại", trong khi DB vẫn đang trỏ tới URL đã chết. Lỗi xoá ảnh cũ ở
+    // đây không được chặn response thành công — ảnh mồ côi còn hơn admin tưởng lưu
+    // thất bại trong khi dữ liệu đã đổi.
+    await this.cleanupRemovedProductAssets(existing, dto);
 
     return this.prisma.product.findUniqueOrThrow({
       where: { id },
@@ -404,12 +423,45 @@ export class ProductsService {
   }
 
   private assertValidSalePrice(
-    salePrice: number | undefined,
+    salePrice: number | null | undefined,
     basePrice: number,
   ): void {
-    if (salePrice !== undefined && salePrice >= basePrice) {
+    if (salePrice != null && salePrice >= basePrice) {
       throw new BadRequestException('Giá khuyến mãi phải nhỏ hơn giá gốc');
     }
+  }
+
+  // Xóa trên Cloudinary các ảnh không còn xuất hiện trong thumbnail/images mới —
+  // dựa vào publicId lưu cùng vị trí với images cũ (existing.imagePublicIds[i]
+  // là publicId của existing.images[i]) vì DB không có bảng ảnh riêng.
+  private async cleanupRemovedProductAssets(
+    existing: Product,
+    dto: UpdateProductDto,
+  ): Promise<void> {
+    const removedPublicIds: string[] = [];
+
+    if (
+      dto.thumbnail !== undefined &&
+      dto.thumbnail !== existing.thumbnail &&
+      existing.thumbnailPublicId
+    ) {
+      removedPublicIds.push(existing.thumbnailPublicId);
+    }
+
+    if (dto.images !== undefined) {
+      const nextImages = new Set(dto.images);
+      existing.images.forEach((url, index) => {
+        if (nextImages.has(url)) return;
+        const publicId = existing.imagePublicIds[index];
+        if (publicId) removedPublicIds.push(publicId);
+      });
+    }
+
+    await Promise.all(
+      removedPublicIds.map((publicId) =>
+        this.uploadService.deleteImage(publicId).catch(() => undefined),
+      ),
+    );
   }
 
   private async resolveCategoryIds(slugOrId: string): Promise<string[]> {
@@ -527,6 +579,24 @@ function assertNoDuplicateVariants(
   }
 }
 
+// images[i] và imagePublicIds[i] phải luôn cùng vị trí (DB không có bảng ảnh riêng để
+// tra publicId theo url) — nếu 2 mảng lệch độ dài, lần cleanupRemovedProductAssets sau
+// sẽ tra publicId sai vị trí, có thể xoá nhầm ảnh đang dùng thật trên Cloudinary.
+function assertImagesPublicIdsAligned(
+  images: string[] | undefined,
+  imagePublicIds: string[] | undefined,
+): void {
+  if (
+    images !== undefined &&
+    imagePublicIds !== undefined &&
+    images.length !== imagePublicIds.length
+  ) {
+    throw new BadRequestException(
+      'images và imagePublicIds phải có cùng số lượng phần tử',
+    );
+  }
+}
+
 function toListItem(product: ProductWithStockVariants) {
   return {
     id: product.id,
@@ -535,6 +605,7 @@ function toListItem(product: ProductWithStockVariants) {
     description: product.description,
     material: product.material,
     thumbnail: product.thumbnail,
+    thumbnailPublicId: product.thumbnailPublicId,
     basePrice: product.basePrice.toNumber(),
     salePrice: product.salePrice?.toNumber() ?? null,
     brandId: product.brandId,

@@ -7,6 +7,7 @@ import {
 import { Category } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
+import { UploadService } from '../upload/upload.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
@@ -15,9 +16,16 @@ export interface CategoryTreeNode extends Category {
   children: CategoryTreeNode[];
 }
 
+// Shop thực tế chỉ cần 2-3 cấp (danh mục lớn > danh mục con > danh mục con con);
+// chặn sâu hơn để tránh cây danh mục phình to khó quản lý ở màn admin.
+const MAX_CATEGORY_DEPTH = 3;
+
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   async findTree(includeInactive: boolean): Promise<CategoryTreeNode[]> {
     const categories = await this.prisma.category.findMany({
@@ -48,6 +56,7 @@ export class CategoriesService {
     if (dto.parentId) {
       await this.assertCategoryExists(dto.parentId);
     }
+    await this.assertDepthWithinLimit(dto.parentId ?? null);
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
 
@@ -56,7 +65,8 @@ export class CategoriesService {
         name: dto.name,
         slug,
         parentId: dto.parentId ?? null,
-        image: dto.image,
+        image: dto.image ?? null,
+        imagePublicId: dto.imagePublicId ?? null,
         isActive: dto.isActive ?? true,
         sortOrder: dto.sortOrder ?? 0,
       },
@@ -79,23 +89,41 @@ export class CategoriesService {
         await this.assertCategoryExists(dto.parentId);
         await this.assertNoCycle(id, dto.parentId);
       }
+      await this.assertDepthWithinLimit(dto.parentId ?? null, id);
     }
 
-    return this.prisma.category.update({
+    const imageChanged =
+      dto.image !== undefined && dto.image !== existing.image;
+
+    const updated = await this.prisma.category.update({
       where: { id },
       data: {
         name: dto.name,
         slug,
         parentId: dto.parentId === undefined ? undefined : dto.parentId,
-        image: dto.image,
+        image: dto.image === undefined ? undefined : dto.image,
+        imagePublicId:
+          dto.imagePublicId === undefined ? undefined : dto.imagePublicId,
         isActive: dto.isActive,
         sortOrder: dto.sortOrder,
       },
     });
+
+    // Best-effort, chạy SAU khi update DB đã thành công — dọn trước mà update sau đó
+    // lỗi (constraint, mất kết nối DB...) thì ảnh cũ đã bị xoá vĩnh viễn trên Cloudinary
+    // trong khi DB vẫn còn trỏ tới URL đã chết. Lỗi xóa ảnh cũ ở đây không được chặn
+    // response thành công — ảnh mồ côi còn hơn admin tưởng lưu thất bại.
+    if (imageChanged && existing.imagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.imagePublicId)
+        .catch(() => undefined);
+    }
+
+    return updated;
   }
 
   async remove(id: string): Promise<void> {
-    await this.assertCategoryExists(id);
+    const existing = await this.assertCategoryExists(id);
 
     const [productCount, childrenCount] = await Promise.all([
       this.prisma.product.count({ where: { categoryId: id } }),
@@ -114,6 +142,12 @@ export class CategoriesService {
     }
 
     await this.prisma.category.delete({ where: { id } });
+
+    if (existing.imagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.imagePublicId)
+        .catch(() => undefined);
+    }
   }
 
   async reorder(dto: ReorderCategoriesDto): Promise<void> {
@@ -126,7 +160,11 @@ export class CategoriesService {
       if (!parentMap.has(item.id)) {
         throw new NotFoundException(`Không tìm thấy danh mục ${item.id}`);
       }
-      if (item.parentId && !parentMap.has(item.parentId)) {
+      if (
+        item.parentId !== undefined &&
+        item.parentId !== null &&
+        !parentMap.has(item.parentId)
+      ) {
         throw new NotFoundException(
           `Không tìm thấy danh mục cha ${item.parentId}`,
         );
@@ -147,6 +185,12 @@ export class CategoriesService {
         }
         visited.add(cursor);
         cursor = parentMap.get(cursor) ?? null;
+      }
+      // visited.size = số cấp từ gốc tới id (gồm chính nó) sau khi áp các thay đổi ở trên.
+      if (visited.size > MAX_CATEGORY_DEPTH) {
+        throw new BadRequestException(
+          `Cây danh mục chỉ được sâu tối đa ${MAX_CATEGORY_DEPTH} cấp`,
+        );
       }
     }
 
@@ -192,6 +236,53 @@ export class CategoriesService {
         });
       cursor = parent?.parentId ?? null;
     }
+  }
+
+  private async assertDepthWithinLimit(
+    parentId: string | null,
+    movingId?: string,
+  ): Promise<void> {
+    const depth = await this.computeDepth(parentId);
+    const subtreeHeight = movingId
+      ? await this.computeSubtreeHeight(movingId)
+      : 0;
+
+    if (depth + subtreeHeight > MAX_CATEGORY_DEPTH) {
+      throw new BadRequestException(
+        `Cây danh mục chỉ được sâu tối đa ${MAX_CATEGORY_DEPTH} cấp`,
+      );
+    }
+  }
+
+  private async computeDepth(parentId: string | null): Promise<number> {
+    let depth = 1;
+    let cursor = parentId;
+    while (cursor) {
+      depth += 1;
+      const parent: { parentId: string | null } | null =
+        await this.prisma.category.findUnique({
+          where: { id: cursor },
+          select: { parentId: true },
+        });
+      cursor = parent?.parentId ?? null;
+    }
+    return depth;
+  }
+
+  // Chiều cao cây con hiện có bên dưới `id` — cần cộng vào depth mới khi dời cả
+  // 1 nhánh sang chỗ khác, tránh trường hợp bản thân node hợp lệ nhưng con/cháu
+  // của nó lại vượt quá MAX_CATEGORY_DEPTH.
+  private async computeSubtreeHeight(id: string): Promise<number> {
+    const children = await this.prisma.category.findMany({
+      where: { parentId: id },
+      select: { id: true },
+    });
+    if (children.length === 0) return 0;
+
+    const heights = await Promise.all(
+      children.map((child) => this.computeSubtreeHeight(child.id)),
+    );
+    return 1 + Math.max(...heights);
   }
 
   private async resolveUniqueSlug(
