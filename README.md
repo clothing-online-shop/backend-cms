@@ -38,7 +38,7 @@ Toàn bộ route ở backend này có global prefix `/api/cms` (đặt ở `app.
 | `categories` | `GET /api/cms/categories`, `GET /api/cms/categories/:slug` | Cần Bearer token, mọi role CMS (ADMIN/WAREHOUSE_STAFF/MARKETING) đều đọc được |
 | | `POST /api/cms/categories`, `PATCH /api/cms/categories/reorder`, `PATCH /api/cms/categories/:id`, `DELETE /api/cms/categories/:id` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
 | `products` | `GET /api/cms/products`, `GET /api/cms/products/:slug` | Cần Bearer token, mọi role CMS đều đọc được |
-| | `POST /api/cms/products`, `PATCH /api/cms/products/:id`, `DELETE /api/cms/products/:id` (soft-delete → INACTIVE), `PATCH /api/cms/products/:id/variants/:variantId/stock` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
+| | `POST /api/cms/products`, `PATCH /api/cms/products/:id` (đổi `status` để khóa/mở khóa bán), `DELETE /api/cms/products/:id` (xóa vĩnh viễn khỏi DB), `PATCH /api/cms/products/:id/variants/:variantId/stock` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
 | `brands` | `GET /api/cms/brands`, `GET /api/cms/brands/:id` | Cần Bearer token, mọi role CMS đều đọc được |
 | | `POST /api/cms/brands`, `PATCH /api/cms/brands/:id`, `DELETE /api/cms/brands/:id` | Cần Bearer token role ADMIN |
 | `upload` | `POST /api/cms/upload/image`, `DELETE /api/cms/upload/image/:publicId` | Cần Bearer token, mọi role CMS |

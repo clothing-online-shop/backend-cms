@@ -4,9 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Product, ProductStatus, ProductVariant } from '@prisma/client';
+import { Prisma, Product, ProductVariant } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
+import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductVariantDto } from './dto/product-variant.dto';
@@ -33,7 +34,9 @@ export class ProductsService {
     const limit = query.limit ?? DEFAULT_PAGE_LIMIT;
 
     const where: Prisma.ProductWhereInput = {};
-    if (query.status) {
+    // Không dùng `if (query.status)` — ProductStatus.DRAFT giờ là 0 (falsy), filter theo
+    // "Nháp" sẽ bị bỏ qua nhầm như không lọc gì nếu chỉ check truthy.
+    if (query.status !== undefined) {
       where.status = query.status;
     }
 
@@ -276,10 +279,19 @@ export class ProductsService {
     if (!existing) {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
-    await this.prisma.product.update({
-      where: { id },
-      data: { status: ProductStatus.INACTIVE },
-    });
+    try {
+      await this.prisma.product.delete({ where: { id } });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+      ) {
+        throw new ConflictException(
+          'Không thể xóa sản phẩm vì đã có biến thể được dùng trong đơn hàng/giỏ hàng',
+        );
+      }
+      throw err;
+    }
   }
 
   async updateVariantStock(

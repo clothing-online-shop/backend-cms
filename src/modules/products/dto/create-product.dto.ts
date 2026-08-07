@@ -10,7 +10,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { ProductStatus } from '@prisma/client';
+import { ProductStatus } from '../product-status.enum';
 import { CreateProductVariantDto } from './product-variant.dto';
 
 export class CreateProductDto {
