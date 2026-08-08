@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -27,6 +28,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
 import { UpdateStockDto } from './dto/update-stock.dto';
+import { AssignCollectionsDto } from './dto/assign-collections.dto';
 
 @ApiTags('products')
 @ApiBearerAuth()
@@ -120,5 +122,27 @@ export class ProductsController {
     @Body() dto: UpdateStockDto,
   ) {
     return this.productsService.updateVariantStock(id, variantId, dto);
+  }
+
+  @Put(':id/collections')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({
+    summary: 'Gán sản phẩm vào danh sách bộ sưu tập (thay thế toàn bộ)',
+  })
+  assignCollections(
+    @Param('id') id: string,
+    @Body() dto: AssignCollectionsDto,
+  ) {
+    return this.productsService.assignCollections(id, dto);
+  }
+
+  @Delete(':id/collections/:collectionId')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: 'Gỡ sản phẩm khỏi 1 bộ sưu tập' })
+  removeFromCollection(
+    @Param('id') id: string,
+    @Param('collectionId') collectionId: string,
+  ) {
+    return this.productsService.removeFromCollection(id, collectionId);
   }
 }
