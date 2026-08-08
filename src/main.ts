@@ -12,7 +12,7 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
-  app.setGlobalPrefix('api/cms');
+  app.setGlobalPrefix('api/cms', { exclude: ['health'] });
 
   app.useLogger(app.get(PinoLogger));
   app.use(helmet());
