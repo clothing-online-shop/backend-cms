@@ -76,6 +76,11 @@ Bỏ qua bước nào trong đây dễ dính lỗi kiểu "TS báo field/enum kh
 
 Gộp nhanh: `git pull && pnpm install && npx prisma migrate dev && pnpm start:dev` (nhớ tắt server cũ trước).
 
+## Bắt đầu tính năng mới
+
+- Trước khi code: `git checkout develop && git pull` để lấy code mới nhất, sau đó tạo branch mới từ `develop` với tên phù hợp tính năng đang làm (`feature/<mo-ta-ngan>`, `fix/<mo-ta-ngan>`) — không code thẳng trên `develop`.
+- Sau khi code xong, trước khi báo hoàn thành/mở PR: chủ động tự review lại toàn bộ diff theo đúng quy ước trong `CLAUDE.md` này và `README.md` của repo — không chỉ dựa vào lint/build pass.
+
 ## Trước khi mở PR
 
 1. `pnpm --filter @clothing-shop/be lint` — 0 lỗi.
