@@ -26,10 +26,13 @@ export class CreateProductVariantDto {
   @Min(0)
   stockQuantity?: number;
 
-  @ApiPropertyOptional()
+  // string | null (không chỉ string) để UpdateProductVariantDto (kế thừa bên dưới) phân
+  // biệt được "không đổi" (bỏ trống field) với "gỡ ảnh" (gửi null) — xem update-product.dto.ts
+  // đã áp dụng cùng convention cho brandId/salePrice.
+  @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsString()
-  imageUrl?: string;
+  imageUrl?: string | null;
 }
 
 export class UpdateProductVariantDto extends CreateProductVariantDto {
