@@ -62,9 +62,27 @@ async function seedProduct(
   );
   const combos = pickRandom(allCombos, variantCount);
 
+  const existing = await prisma.product.findUnique({
+    where: { slug },
+    select: { images: true, imagePublicIds: true },
+  });
+  // Sản phẩm đã tồn tại và imagePublicIds đã khớp đủ số lượng với images hiện có (vd
+  // admin đã tự upload ảnh thật qua CMS, thay cho ảnh placeholder ban đầu) — không đụng
+  // lại thumbnail/images nữa, tránh chạy lại seed làm mất ảnh thật đã upload. Chỉ backfill
+  // publicId placeholder khớp đúng số lượng ảnh HIỆN CÓ khi thật sự còn thiếu.
+  const imageUpdate =
+    existing && existing.imagePublicIds.length === existing.images.length
+      ? {}
+      : {
+          thumbnailPublicId,
+          imagePublicIds: (existing?.images ?? images).map(
+            (_, i) => `seed-placeholder/${imageSeed + i}`,
+          ),
+        };
+
   await prisma.product.upsert({
     where: { slug },
-    update: { thumbnail, thumbnailPublicId, images, imagePublicIds },
+    update: imageUpdate,
     create: {
       name: seed.name,
       slug,
