@@ -37,7 +37,10 @@ interface ProductSeed {
   basePrice: number;
 }
 
-async function seedProduct(seed: ProductSeed, imageSeed: number): Promise<void> {
+async function seedProduct(
+  seed: ProductSeed,
+  imageSeed: number,
+): Promise<void> {
   const slug = generateSlug(seed.name);
   const thumbnail = `https://picsum.photos/seed/${imageSeed}/600/800`;
   const images = [
@@ -45,14 +48,23 @@ async function seedProduct(seed: ProductSeed, imageSeed: number): Promise<void> 
     `https://picsum.photos/seed/${imageSeed + 1}/600/800`,
     `https://picsum.photos/seed/${imageSeed + 2}/600/800`,
   ];
+  // Ảnh seed không phải upload Cloudinary thật nên không có publicId thật — vẫn phải
+  // set song song đủ số lượng với `images`, nếu không CMS sẽ báo lỗi lệch mảng khi admin
+  // sửa lại sản phẩm seed (xem assertImagesPublicIdsAligned ở products.service.ts).
+  const thumbnailPublicId = `seed-placeholder/${imageSeed}`;
+  const imagePublicIds = images.map(
+    (_, i) => `seed-placeholder/${imageSeed + i}`,
+  );
 
   const variantCount = randomInt(2, 4);
-  const allCombos = SIZES.flatMap((size) => COLORS.map((color) => ({ size, color })));
+  const allCombos = SIZES.flatMap((size) =>
+    COLORS.map((color) => ({ size, color })),
+  );
   const combos = pickRandom(allCombos, variantCount);
 
   await prisma.product.upsert({
     where: { slug },
-    update: {},
+    update: { thumbnail, thumbnailPublicId, images, imagePublicIds },
     create: {
       name: seed.name,
       slug,
@@ -61,7 +73,9 @@ async function seedProduct(seed: ProductSeed, imageSeed: number): Promise<void> 
       basePrice: seed.basePrice,
       status: ProductStatus.ACTIVE,
       thumbnail,
+      thumbnailPublicId,
       images,
+      imagePublicIds,
       variants: {
         create: combos.map(({ size, color }) => ({
           size,
@@ -76,8 +90,18 @@ async function seedProduct(seed: ProductSeed, imageSeed: number): Promise<void> 
   });
 }
 
-const CMS_ACCOUNTS: { email: string; password: string; fullName: string; role: UserRole }[] = [
-  { email: 'admin@clothing-shop.com', password: 'admin123', fullName: 'Quản trị viên', role: 'ADMIN' },
+const CMS_ACCOUNTS: {
+  email: string;
+  password: string;
+  fullName: string;
+  role: UserRole;
+}[] = [
+  {
+    email: 'admin@clothing-shop.com',
+    password: 'admin123',
+    fullName: 'Quản trị viên',
+    role: 'ADMIN',
+  },
   {
     email: 'warehouse@clothing-shop.com',
     password: 'warehouse123',
@@ -142,7 +166,11 @@ async function main() {
     { name: 'Áo thun nam basic', categoryId: aoNam.id, basePrice: 159000 },
     { name: 'Áo polo nam', categoryId: aoNam.id, basePrice: 219000 },
     { name: 'Áo khoác nam denim', categoryId: aoNam.id, basePrice: 459000 },
-    { name: 'Quần jean nam slimfit', categoryId: quanNam.id, basePrice: 399000 },
+    {
+      name: 'Quần jean nam slimfit',
+      categoryId: quanNam.id,
+      basePrice: 399000,
+    },
     { name: 'Quần âu nam', categoryId: quanNam.id, basePrice: 349000 },
     { name: 'Quần short nam kaki', categoryId: quanNam.id, basePrice: 229000 },
     { name: 'Quần jogger nam', categoryId: quanNam.id, basePrice: 279000 },
