@@ -110,4 +110,13 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProductVariantDto)
   variants!: CreateProductVariantDto[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Danh sách id bộ sưu tập gán ngay lúc tạo sản phẩm',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  collectionIds?: string[];
 }

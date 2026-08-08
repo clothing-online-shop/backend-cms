@@ -11,7 +11,15 @@ import { CreateProductDto } from './create-product.dto';
 import { UpdateProductVariantDto } from './product-variant.dto';
 
 export class UpdateProductDto extends PartialType(
-  OmitType(CreateProductDto, ['variants', 'brandId', 'salePrice'] as const),
+  OmitType(CreateProductDto, [
+    'variants',
+    'brandId',
+    'salePrice',
+    // Gán bộ sưu tập đi qua PUT /products/:id/collections riêng (AssignCollectionsDto),
+    // không PATCH chung với các field khác — tránh vô tình reset collections khi sửa
+    // 1 field bất kỳ khác của sản phẩm mà quên gửi kèm collectionIds đầy đủ.
+    'collectionIds',
+  ] as const),
 ) {
   @ApiPropertyOptional({
     description:

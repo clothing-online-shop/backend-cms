@@ -12,6 +12,7 @@ import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductVariantDto } from './dto/product-variant.dto';
+import { AssignCollectionsDto } from './dto/assign-collections.dto';
 import {
   ListProductsQueryDto,
   ProductSort,
@@ -21,6 +22,9 @@ import { UpdateStockDto } from './dto/update-stock.dto';
 type Db = Prisma.TransactionClient;
 type ProductWithStockVariants = Product & {
   variants: { stockQuantity: number }[];
+  // Optional — relatedProducts (findBySlug) không include collections, chỉ findAll() và
+  // chính findBySlug() (bản thân sản phẩm đang xem) mới có; toListItem tự fallback [].
+  collections?: { collection: { id: string; name: string; slug: string } }[];
 };
 
 const RELATED_PRODUCTS_LIMIT = 8;
@@ -83,13 +87,22 @@ export class ProductsService {
       where.brandId = query.brandId;
     }
 
+    if (query.collectionIds) {
+      where.collections = {
+        some: { collectionId: { in: query.collectionIds.split(',') } },
+      };
+    }
+
     const [products, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
         orderBy: resolveOrderBy(query.sort),
         skip: (page - 1) * limit,
         take: limit,
-        include: { variants: { select: { stockQuantity: true } } },
+        include: {
+          variants: { select: { stockQuantity: true } },
+          collections: { include: { collection: true } },
+        },
       }),
       this.prisma.product.count({ where }),
     ]);
@@ -113,6 +126,7 @@ export class ProductsService {
         brand: true,
         variants: true,
         reviews: { orderBy: { createdAt: 'desc' } },
+        collections: { include: { collection: true } },
       },
     });
 
@@ -150,6 +164,11 @@ export class ProductsService {
       variants: product.variants.map(toVariantDto),
       reviews: product.reviews,
       relatedProducts: relatedProducts.map(toListItem),
+      collections: product.collections.map((cp) => ({
+        id: cp.collection.id,
+        name: cp.collection.name,
+        slug: cp.collection.slug,
+      })),
     };
   }
 
@@ -160,6 +179,14 @@ export class ProductsService {
     await this.assertCategoryExists(dto.categoryId);
     this.assertValidSalePrice(dto.salePrice, dto.basePrice);
     assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
+    // Dedupe trước khi ghi — client gửi trùng id (double-submit, gọi API thô qua Swagger...)
+    // sẽ đụng @@unique([collectionId, productId]) và ném P2002 thô nếu không lọc trước.
+    const collectionIds = dto.collectionIds?.length
+      ? [...new Set(dto.collectionIds)]
+      : undefined;
+    if (collectionIds?.length) {
+      await this.assertCollectionsExist(collectionIds);
+    }
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
     const usedSkus = new Set<string>();
@@ -203,6 +230,13 @@ export class ProductsService {
         metaTitle: dto.metaTitle,
         metaDescription: dto.metaDescription,
         variants: { create: variantsData },
+        collections: collectionIds?.length
+          ? {
+              create: collectionIds.map((collectionId) => ({
+                collectionId,
+              })),
+            }
+          : undefined,
       },
       include: { variants: true },
     });
@@ -313,6 +347,48 @@ export class ProductsService {
     }
   }
 
+  // Thay thế TOÀN BỘ danh sách bộ sưu tập của sản phẩm — cùng cách tiếp cận với
+  // syncVariants: FE luôn gửi danh sách đầy đủ mong muốn, không phải diff thủ công.
+  async assignCollections(
+    productId: string,
+    dto: AssignCollectionsDto,
+  ): Promise<void> {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+    if (!product) {
+      throw new NotFoundException('Không tìm thấy sản phẩm');
+    }
+    // Dedupe trước khi ghi — client gửi trùng id sẽ đụng @@unique([collectionId,
+    // productId]) và ném P2002 thô nếu không lọc trước.
+    const collectionIds = [...new Set(dto.collectionIds)];
+    if (collectionIds.length > 0) {
+      await this.assertCollectionsExist(collectionIds);
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.collectionProduct.deleteMany({ where: { productId } }),
+      this.prisma.collectionProduct.createMany({
+        data: collectionIds.map((collectionId) => ({
+          productId,
+          collectionId,
+        })),
+      }),
+    ]);
+  }
+
+  async removeFromCollection(
+    productId: string,
+    collectionId: string,
+  ): Promise<void> {
+    const { count } = await this.prisma.collectionProduct.deleteMany({
+      where: { productId, collectionId },
+    });
+    if (count === 0) {
+      throw new NotFoundException('Sản phẩm không thuộc bộ sưu tập này');
+    }
+  }
+
   async updateVariantStock(
     productId: string,
     variantId: string,
@@ -412,6 +488,18 @@ export class ProductsService {
         }
         throw err;
       }
+    }
+  }
+
+  private async assertCollectionsExist(collectionIds: string[]): Promise<void> {
+    const uniqueIds = new Set(collectionIds);
+    const count = await this.prisma.collection.count({
+      where: { id: { in: [...uniqueIds] } },
+    });
+    if (count !== uniqueIds.size) {
+      throw new BadRequestException(
+        'Có bộ sưu tập không tồn tại trong danh sách gán',
+      );
     }
   }
 
@@ -612,6 +700,11 @@ function toListItem(product: ProductWithStockVariants) {
     status: product.status,
     categoryId: product.categoryId,
     totalStock: product.variants.reduce((sum, v) => sum + v.stockQuantity, 0),
+    collections: (product.collections ?? []).map((cp) => ({
+      id: cp.collection.id,
+      name: cp.collection.name,
+      slug: cp.collection.slug,
+    })),
     createdAt: product.createdAt,
   };
 }

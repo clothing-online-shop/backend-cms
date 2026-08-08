@@ -155,10 +155,11 @@ model Product {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  category Category         @relation(fields: [categoryId], references: [id])
-  brand    Brand?           @relation(fields: [brandId], references: [id])
-  variants ProductVariant[]
-  reviews  Review[]
+  category    Category             @relation(fields: [categoryId], references: [id])
+  brand       Brand?               @relation(fields: [brandId], references: [id])
+  variants    ProductVariant[]
+  reviews     Review[]
+  collections CollectionProduct[]
 
   @@index([categoryId])
   @@index([brandId])
@@ -191,7 +192,24 @@ model Collection {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  products CollectionProduct[]
+
   @@map("collections")
+}
+
+model CollectionProduct {
+  id           String   @id @default(cuid())
+  collectionId String
+  productId    String
+  createdAt    DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, productId])
+  @@index([productId])
+  @@index([collectionId])
+  @@map("collection_products")
 }
 
 model ProductVariant {
