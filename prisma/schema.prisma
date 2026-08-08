@@ -179,6 +179,21 @@ model Brand {
   @@map("brands")
 }
 
+model Collection {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  banner         String?
+  bannerPublicId String?
+  description    String?
+  startDate      DateTime
+  endDate        DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("collections")
+}
+
 model ProductVariant {
   id            String  @id @default(cuid())
   productId     String
