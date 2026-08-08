@@ -9,6 +9,7 @@ import { generateSlug } from '../../common/utils/slug.util';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { UpdateCollectionDto } from './dto/update-collection.dto';
 import { ListCollectionsQueryDto } from './dto/list-collections-query.dto';
+import { AssignProductsDto } from './dto/assign-products.dto';
 import { CollectionStatus } from './collection-status.enum';
 
 export type CollectionWithStatus = Collection & { status: CollectionStatus };
@@ -87,6 +88,50 @@ export class CollectionsService {
   async remove(id: string): Promise<void> {
     await this.findExisting(id);
     await this.prisma.collection.delete({ where: { id } });
+  }
+
+  // Thay thế TOÀN BỘ danh sách sản phẩm của bộ sưu tập — cùng cách tiếp cận với
+  // assignCollections bên ProductsService (chiều ngược lại): FE luôn gửi danh sách đầy
+  // đủ mong muốn, không phải diff thủ công.
+  async assignProducts(
+    collectionId: string,
+    dto: AssignProductsDto,
+  ): Promise<void> {
+    await this.findExisting(collectionId);
+    // Dedupe trước khi ghi — client gửi trùng id sẽ đụng @@unique([collectionId,
+    // productId]) và ném P2002 thô nếu không lọc trước.
+    const productIds = [...new Set(dto.productIds)];
+    if (productIds.length > 0) {
+      await this.assertProductsExist(productIds);
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.collectionProduct.deleteMany({ where: { collectionId } }),
+      this.prisma.collectionProduct.createMany({
+        data: productIds.map((productId) => ({ collectionId, productId })),
+      }),
+    ]);
+  }
+
+  async removeProduct(collectionId: string, productId: string): Promise<void> {
+    const { count } = await this.prisma.collectionProduct.deleteMany({
+      where: { collectionId, productId },
+    });
+    if (count === 0) {
+      throw new NotFoundException('Bộ sưu tập không chứa sản phẩm này');
+    }
+  }
+
+  private async assertProductsExist(productIds: string[]): Promise<void> {
+    const uniqueIds = new Set(productIds);
+    const count = await this.prisma.product.count({
+      where: { id: { in: [...uniqueIds] } },
+    });
+    if (count !== uniqueIds.size) {
+      throw new BadRequestException(
+        'Có sản phẩm không tồn tại trong danh sách gán',
+      );
+    }
   }
 
   private async findExisting(id: string): Promise<Collection> {

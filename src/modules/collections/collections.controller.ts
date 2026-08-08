@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { CollectionsService } from './collections.service';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { UpdateCollectionDto } from './dto/update-collection.dto';
 import { ListCollectionsQueryDto } from './dto/list-collections-query.dto';
+import { AssignProductsDto } from './dto/assign-products.dto';
 
 @ApiTags('collections')
 @ApiBearerAuth()
@@ -60,5 +62,25 @@ export class CollectionsController {
   @ApiOperation({ summary: 'Xóa bộ sưu tập (Admin, Marketing)' })
   remove(@Param('id') id: string) {
     return this.collectionsService.remove(id);
+  }
+
+  @Put(':id/products')
+  @Roles(UserRole.ADMIN, UserRole.MARKETING)
+  @ApiOperation({
+    summary:
+      'Gán bộ sưu tập cho danh sách sản phẩm (thay thế toàn bộ, Admin, Marketing)',
+  })
+  assignProducts(@Param('id') id: string, @Body() dto: AssignProductsDto) {
+    return this.collectionsService.assignProducts(id, dto);
+  }
+
+  @Delete(':id/products/:productId')
+  @Roles(UserRole.ADMIN, UserRole.MARKETING)
+  @ApiOperation({ summary: 'Gỡ 1 sản phẩm khỏi bộ sưu tập (Admin, Marketing)' })
+  removeProduct(
+    @Param('id') id: string,
+    @Param('productId') productId: string,
+  ) {
+    return this.collectionsService.removeProduct(id, productId);
   }
 }
