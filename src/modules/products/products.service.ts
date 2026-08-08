@@ -87,6 +87,12 @@ export class ProductsService {
       where.brandId = query.brandId;
     }
 
+    if (query.collectionIds) {
+      where.collections = {
+        some: { collectionId: { in: query.collectionIds.split(',') } },
+      };
+    }
+
     const [products, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
@@ -173,8 +179,13 @@ export class ProductsService {
     await this.assertCategoryExists(dto.categoryId);
     this.assertValidSalePrice(dto.salePrice, dto.basePrice);
     assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
-    if (dto.collectionIds?.length) {
-      await this.assertCollectionsExist(dto.collectionIds);
+    // Dedupe trước khi ghi — client gửi trùng id (double-submit, gọi API thô qua Swagger...)
+    // sẽ đụng @@unique([collectionId, productId]) và ném P2002 thô nếu không lọc trước.
+    const collectionIds = dto.collectionIds?.length
+      ? [...new Set(dto.collectionIds)]
+      : undefined;
+    if (collectionIds?.length) {
+      await this.assertCollectionsExist(collectionIds);
     }
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
@@ -219,9 +230,9 @@ export class ProductsService {
         metaTitle: dto.metaTitle,
         metaDescription: dto.metaDescription,
         variants: { create: variantsData },
-        collections: dto.collectionIds?.length
+        collections: collectionIds?.length
           ? {
-              create: dto.collectionIds.map((collectionId) => ({
+              create: collectionIds.map((collectionId) => ({
                 collectionId,
               })),
             }
@@ -348,14 +359,17 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
-    if (dto.collectionIds.length > 0) {
-      await this.assertCollectionsExist(dto.collectionIds);
+    // Dedupe trước khi ghi — client gửi trùng id sẽ đụng @@unique([collectionId,
+    // productId]) và ném P2002 thô nếu không lọc trước.
+    const collectionIds = [...new Set(dto.collectionIds)];
+    if (collectionIds.length > 0) {
+      await this.assertCollectionsExist(collectionIds);
     }
 
     await this.prisma.$transaction([
       this.prisma.collectionProduct.deleteMany({ where: { productId } }),
       this.prisma.collectionProduct.createMany({
-        data: dto.collectionIds.map((collectionId) => ({
+        data: collectionIds.map((collectionId) => ({
           productId,
           collectionId,
         })),

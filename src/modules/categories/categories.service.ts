@@ -13,6 +13,7 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 
 export interface CategoryTreeNode extends Category {
+  productCount: number;
   children: CategoryTreeNode[];
 }
 
@@ -31,6 +32,7 @@ export class CategoriesService {
     const categories = await this.prisma.category.findMany({
       where: includeInactive ? undefined : { isActive: true },
       orderBy: { sortOrder: 'asc' },
+      include: { _count: { select: { products: true } } },
     });
 
     return buildTree(categories);
@@ -309,9 +311,14 @@ export class CategoriesService {
   }
 }
 
-function buildTree(categories: Category[]): CategoryTreeNode[] {
+function buildTree(
+  categories: (Category & { _count: { products: number } })[],
+): CategoryTreeNode[] {
   const nodeMap = new Map<string, CategoryTreeNode>();
-  categories.forEach((c) => nodeMap.set(c.id, { ...c, children: [] }));
+  categories.forEach((c) => {
+    const { _count, ...rest } = c;
+    nodeMap.set(c.id, { ...rest, productCount: _count.products, children: [] });
+  });
 
   const roots: CategoryTreeNode[] = [];
   for (const category of categories) {

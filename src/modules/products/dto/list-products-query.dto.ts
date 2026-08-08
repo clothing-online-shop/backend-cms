@@ -59,6 +59,14 @@ export class ListProductsQueryDto {
   brandId?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Lọc theo id bộ sưu tập — có thể truyền nhiều id cách nhau bởi dấu phẩy',
+  })
+  @IsOptional()
+  @IsString()
+  collectionIds?: string;
+
+  @ApiPropertyOptional({
     enum: ProductStatus,
     description: 'Chỉ áp dụng khi gọi kèm token Admin',
   })

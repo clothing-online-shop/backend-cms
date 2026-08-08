@@ -62,6 +62,11 @@ export class ProductsController {
   })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({
+    name: 'collectionIds',
+    required: false,
+    description: 'Có thể truyền nhiều id cách nhau bởi dấu phẩy',
+  })
+  @ApiQuery({
     name: 'status',
     required: false,
     enum: ProductStatus,
