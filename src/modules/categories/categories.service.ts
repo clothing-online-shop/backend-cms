@@ -330,5 +330,21 @@ function buildTree(
     }
   }
 
+  // productCount hiển thị ở màn quản lý cây danh mục cần cộng dồn cả danh mục con (danh
+  // mục cha là nhóm gộp, admin kỳ vọng thấy tổng số sản phẩm thuộc nhóm đó) — cộng dồn từ
+  // lá lên gốc, không ảnh hưởng tới productCount dùng để chặn xóa ở remove() (query riêng,
+  // vẫn đếm trực tiếp theo categoryId, đúng ý nghĩa "danh mục NÀY còn sản phẩm hay không").
+  addDescendantProductCounts(roots);
+
   return roots;
+}
+
+function addDescendantProductCounts(nodes: CategoryTreeNode[]): void {
+  for (const node of nodes) {
+    addDescendantProductCounts(node.children);
+    node.productCount += node.children.reduce(
+      (sum, child) => sum + child.productCount,
+      0,
+    );
+  }
 }

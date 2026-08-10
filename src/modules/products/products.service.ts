@@ -35,7 +35,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly uploadService: UploadService,
-  ) {}
+  ) { }
 
   async findAll(query: ListProductsQueryDto) {
     const page = query.page ?? 1;
@@ -43,7 +43,7 @@ export class ProductsService {
 
     const where: Prisma.ProductWhereInput = {};
     // Không dùng `if (query.status)` — ProductStatus.DRAFT giờ là 0 (falsy), filter theo
-    // "Nháp" sẽ bị bỏ qua nhầm như không lọc gì nếu chỉ check truthy.
+    // "Chưa mở bán" sẽ bị bỏ qua nhầm như không lọc gì nếu chỉ check truthy.
     if (query.status !== undefined) {
       where.status = query.status;
     }
@@ -232,10 +232,10 @@ export class ProductsService {
         variants: { create: variantsData },
         collections: collectionIds?.length
           ? {
-              create: collectionIds.map((collectionId) => ({
-                collectionId,
-              })),
-            }
+            create: collectionIds.map((collectionId) => ({
+              collectionId,
+            })),
+          }
           : undefined,
       },
       include: { variants: true },
@@ -428,14 +428,14 @@ export class ProductsService {
         const current = existingVariants.find((v) => v.id === item.id)!;
         const sku = item.sku
           ? await this.resolveUniqueSku(
-              tx,
-              item.sku,
-              productSlug,
-              item.size,
-              item.color,
-              usedSkus,
-              item.id,
-            )
+            tx,
+            item.sku,
+            productSlug,
+            item.size,
+            item.color,
+            usedSkus,
+            item.id,
+          )
           : current.sku;
         usedSkus.add(sku);
         await tx.productVariant.update({
