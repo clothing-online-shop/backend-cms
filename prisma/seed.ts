@@ -86,14 +86,15 @@ async function seedProduct(
     where: { slug },
     select: { thumbnailPublicId: true },
   });
-  // Sản phẩm đã tồn tại nhưng thumbnailPublicId vẫn còn tiền tố "seed-placeholder/" —
-  // nghĩa là chưa từng bị admin thay ảnh thật qua CMS (ảnh thật upload Cloudinary có
-  // publicId khác hẳn) — an toàn để ghi đè sang ảnh placeholder mới mỗi lần chạy seed.
-  // Ngược lại (publicId khác, hoặc sản phẩm chưa tồn tại) thì giữ nguyên/tạo mới bình
-  // thường, không bao giờ ghi đè lên ảnh thật đã upload.
+  // Sản phẩm đã tồn tại nhưng thumbnailPublicId rỗng (các bản seed cũ trước khi field
+  // này tồn tại) hoặc còn tiền tố "seed-placeholder/" — nghĩa là chưa từng bị admin thay
+  // ảnh thật qua CMS (ảnh thật upload Cloudinary luôn có publicId dạng "clothing-shop/...")
+  // — an toàn để ghi đè sang ảnh placeholder mới mỗi lần chạy seed. Ngược lại thì giữ
+  // nguyên/tạo mới bình thường, không bao giờ ghi đè lên ảnh thật đã upload.
   const stillPlaceholder =
     !existing ||
-    (existing.thumbnailPublicId?.startsWith('seed-placeholder/') ?? false);
+    !existing.thumbnailPublicId ||
+    existing.thumbnailPublicId.startsWith('seed-placeholder/');
   const imageUpdate = stillPlaceholder
     ? { thumbnail, thumbnailPublicId, images, imagePublicIds }
     : {};
