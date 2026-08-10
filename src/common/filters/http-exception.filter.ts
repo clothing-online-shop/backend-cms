@@ -41,6 +41,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? (exceptionResponse as Record<string, unknown>).error
         : HttpStatus[statusCode];
 
+    // Mã lỗi cố định (xem common/constants/error-codes.ts) — chỉ có khi service throw
+    // kèm `code` (không phải mọi exception đều có, vd lỗi tự động của class-validator).
+    // undefined thì JSON.stringify tự bỏ field này, không lộ noise ra response.
+    const code =
+      exceptionResponse &&
+      typeof exceptionResponse === 'object' &&
+      'code' in exceptionResponse
+        ? (exceptionResponse as Record<string, unknown>).code
+        : undefined;
+
     this.logger.error(
       `${request.method} ${request.url} -> ${statusCode}`,
       isHttpException ? undefined : (exception as Error)?.stack,
@@ -56,6 +66,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode,
       message,
       error,
+      code,
       timestamp: new Date().toISOString(),
       path: request.url,
     });

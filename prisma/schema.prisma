@@ -122,6 +122,10 @@ model Category {
   image         String?
   imagePublicId String?
   isActive      Boolean    @default(true)
+  // Xóa mềm — xem categories.service.ts remove(). Khác isActive (ẩn/hiện tạm thời trên
+  // storefront, vẫn quản lý được bình thường ở CMS): isDelete = true nghĩa là đã "xóa",
+  // biến mất khỏi mọi nơi CHỌN danh mục, chỉ còn dùng để tra tên cho sản phẩm cũ.
+  isDelete      Boolean    @default(false)
   sortOrder     Int        @default(0)
   parentId      String?
   parent        Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
@@ -152,6 +156,10 @@ model Product {
   imagePublicIds    String[]      @default([])
   metaTitle         String?
   metaDescription   String?
+  // Xóa mềm — xem products.service.ts remove(). Trước đây xóa cứng nhưng variant đã dùng
+  // trong đơn hàng/giỏ hàng thì bị chặn hết (FK constraint chặn cascade-delete cả sản
+  // phẩm), xóa mềm tránh hẳn vấn đề đó — record vẫn còn để giữ lịch sử đơn hàng/review.
+  isDelete          Boolean       @default(false)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -189,6 +197,10 @@ model Collection {
   description    String?
   startDate      DateTime
   endDate        DateTime
+  // Xóa mềm — xem collections.service.ts remove(). isDelete = true nghĩa là đã "xóa",
+  // biến mất khỏi màn danh sách và mọi nơi CHỌN bộ sưu tập (vd bước gán bộ sưu tập cho
+  // sản phẩm), không xóa cứng để giữ lịch sử sản phẩm đã từng gán vào nó.
+  isDelete       Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

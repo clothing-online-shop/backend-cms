@@ -29,8 +29,16 @@ src/modules/<ten-module>/
 ## Xử lý lỗi
 
 - Ném `HttpException` con cháu chuẩn của Nest (`BadRequestException`, `ConflictException`, `UnauthorizedException`, `NotFoundException`...), không tự tạo response lỗi thủ công trong controller.
-- `AllExceptionsFilter` (global) đã format lỗi thành `{ statusCode, message, error, timestamp, path }` — không cần catch lại ở controller/service để format response.
+- `AllExceptionsFilter` (global) đã format lỗi thành `{ statusCode, message, error, code, timestamp, path }` — không cần catch lại ở controller/service để format response.
 - Không để lộ message lỗi nội bộ (stack trace, câu lệnh SQL...) ra response cho client.
+- **Lỗi validate nghiệp vụ ném trong service** (không tính lỗi tự động của `class-validator` ở DTO) **phải kèm `code`** — mã lỗi cố định dạng số, khai trong `src/common/constants/error-codes.ts` (enum `ErrorCode`, mỗi domain giữ 1 dải 100 số) — để FE dựa vào `code` (ổn định, không đổi theo ngôn ngữ) mà hiện đúng message/xử lý theo từng loại lỗi, thay vì parse chuỗi `message` tiếng Việt. Truyền qua object khi throw, không cần sửa gì thêm ở controller/filter:
+  ```ts
+  throw new ConflictException({
+    code: ErrorCode.CATEGORY_NAME_DUPLICATE,
+    message: 'Đã tồn tại danh mục cùng tên trong cùng danh mục cha',
+  });
+  ```
+  Thêm code mới vào cuối dải của đúng domain, không đổi/xoá giá trị code đã có (FE có thể đã dựa vào để switch UI). Xem `categories.service.ts`/`collections.service.ts` làm mẫu.
 
 ## Auth & phân quyền
 

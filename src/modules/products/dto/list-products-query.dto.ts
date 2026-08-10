@@ -93,4 +93,15 @@ export class ListProductsQueryDto {
   @IsInt()
   @Min(1)
   limit?: number;
+
+  // Kiểu string (không phải boolean) — so sánh === 'true' ở service, tránh
+  // class-transformer Boolean("false") === true (mọi chuỗi khác rỗng đều truthy).
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'Lấy cả sản phẩm đã xóa mềm — chỉ dùng nội bộ (vd nạp lại danh sách sản phẩm ĐANG gán cho 1 bộ sưu tập để không vô tình gỡ mất sản phẩm đã xóa), không dùng cho màn danh sách/chọn sản phẩm thông thường',
+  })
+  @IsOptional()
+  @IsString()
+  includeDeleted?: string;
 }

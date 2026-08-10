@@ -78,6 +78,13 @@ export class ProductsController {
   })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({
+    name: 'includeDeleted',
+    required: false,
+    type: Boolean,
+    description:
+      'Chỉ dùng nội bộ (vd nạp lại sản phẩm ĐANG gán cho 1 bộ sưu tập), không dùng cho màn danh sách/chọn sản phẩm thông thường',
+  })
   @ApiResponse({
     status: 200,
     description: 'Danh sách sản phẩm kèm meta phân trang',
@@ -112,7 +119,7 @@ export class ProductsController {
   @Delete(':id')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({
-    summary: 'Xóa vĩnh viễn sản phẩm khỏi DB (Admin)',
+    summary: 'Xóa sản phẩm — xóa mềm, giữ lịch sử đơn hàng/review (Admin)',
   })
   remove(@Param('id') id: string) {
     return this.productsService.remove(id);

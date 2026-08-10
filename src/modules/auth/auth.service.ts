@@ -71,7 +71,16 @@ export class AuthService {
 
     let matchedTokenId: string | null = null;
     for (const candidate of candidates) {
-      if (await argon2.verify(candidate.tokenHash, refreshToken)) {
+      // argon2.verify() throw (không trả false) khi tokenHash không đúng định dạng PHC —
+      // 1 row hỏng/hash cũ (vd sót lại từ lúc đổi thuật toán hash rồi revert) không được
+      // phép làm crash toàn bộ vòng lặp, chặn refresh của MỌI session khác của user này.
+      let isMatch: boolean;
+      try {
+        isMatch = await argon2.verify(candidate.tokenHash, refreshToken);
+      } catch {
+        continue;
+      }
+      if (isMatch) {
         matchedTokenId = candidate.id;
         break;
       }

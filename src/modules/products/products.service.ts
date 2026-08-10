@@ -7,6 +7,8 @@ import {
 import { Prisma, Product, ProductVariant } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
+import { toDateOnly } from '../../common/utils/date.util';
+import { ErrorCode } from '../../common/constants/error-codes';
 import { UploadService } from '../upload/upload.service';
 import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -42,6 +44,10 @@ export class ProductsService {
     const limit = query.limit ?? DEFAULT_PAGE_LIMIT;
 
     const where: Prisma.ProductWhereInput = {};
+    // Không truyền includeDeleted → mặc định isDelete: false (giống categories/collections).
+    if (query.includeDeleted !== 'true') {
+      where.isDelete = false;
+    }
     // Không dùng `if (query.status)` — ProductStatus.DRAFT giờ là 0 (falsy), filter theo
     // "Nháp" sẽ bị bỏ qua nhầm như không lọc gì nếu chỉ check truthy.
     if (query.status !== undefined) {
@@ -130,8 +136,11 @@ export class ProductsService {
       },
     });
 
-    if (!product) {
-      throw new NotFoundException('Không tìm thấy sản phẩm');
+    if (!product || product.isDelete) {
+      throw new NotFoundException({
+        code: ErrorCode.PRODUCT_NOT_FOUND,
+        message: 'Không tìm thấy sản phẩm',
+      });
     }
 
     const relatedProducts = await this.prisma.product.findMany({
@@ -139,6 +148,7 @@ export class ProductsService {
         categoryId: product.categoryId,
         id: { not: product.id },
         status: ProductStatus.ACTIVE,
+        isDelete: false,
       },
       include: { variants: { select: { stockQuantity: true } } },
       take: RELATED_PRODUCTS_LIMIT,
@@ -186,6 +196,10 @@ export class ProductsService {
       : undefined;
     if (collectionIds?.length) {
       await this.assertCollectionsExist(collectionIds);
+      // Sản phẩm mới tạo chưa từng thuộc bộ sưu tập nào — mọi id trong collectionIds ở
+      // đây đều là gán MỚI, nên check thẳng, không cần so với danh sách hiện có như
+      // assignCollections() (sản phẩm đã tồn tại, có thể giữ nguyên collection cũ đã ENDED).
+      await this.assertCollectionsNotEnded(collectionIds);
     }
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
@@ -250,13 +264,21 @@ export class ProductsService {
       where: { id },
       include: { variants: true },
     });
-    if (!existing) {
-      throw new NotFoundException('Không tìm thấy sản phẩm');
+    // Đã xóa mềm coi như không tồn tại — không cho sửa 1 sản phẩm đã xóa (khớp
+    // assertCategoryExists() ở categories.service.ts / findExisting() ở collections.service.ts).
+    if (!existing || existing.isDelete) {
+      throw new NotFoundException({
+        code: ErrorCode.PRODUCT_NOT_FOUND,
+        message: 'Không tìm thấy sản phẩm',
+      });
     }
 
     if (dto.categoryId !== undefined) {
       if (!dto.categoryId) {
-        throw new BadRequestException('categoryId không được để trống');
+        throw new BadRequestException({
+          code: ErrorCode.PRODUCT_CATEGORY_ID_REQUIRED,
+          message: 'categoryId không được để trống',
+        });
       }
       await this.assertCategoryExists(dto.categoryId);
     }
@@ -329,22 +351,19 @@ export class ProductsService {
 
   async remove(id: string): Promise<void> {
     const existing = await this.prisma.product.findUnique({ where: { id } });
-    if (!existing) {
-      throw new NotFoundException('Không tìm thấy sản phẩm');
+    if (!existing || existing.isDelete) {
+      throw new NotFoundException({
+        code: ErrorCode.PRODUCT_NOT_FOUND,
+        message: 'Không tìm thấy sản phẩm',
+      });
     }
-    try {
-      await this.prisma.product.delete({ where: { id } });
-    } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2003'
-      ) {
-        throw new ConflictException(
-          'Không thể xóa sản phẩm vì đã có biến thể được dùng trong đơn hàng/giỏ hàng',
-        );
-      }
-      throw err;
-    }
+    // Xóa mềm — record vẫn còn để giữ lịch sử đơn hàng/review, và tránh hẳn lỗi FK
+    // (P2003) từng gặp khi xóa cứng cascade xuống variant đang được OrderItem/CartItem/
+    // StockMovement tham chiếu (không còn cách nào chặn xóa vì không thật sự xóa nữa).
+    await this.prisma.product.update({
+      where: { id },
+      data: { isDelete: true },
+    });
   }
 
   // Thay thế TOÀN BỘ danh sách bộ sưu tập của sản phẩm — cùng cách tiếp cận với
@@ -355,15 +374,31 @@ export class ProductsService {
   ): Promise<void> {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
+      include: { collections: { select: { collectionId: true } } },
     });
-    if (!product) {
-      throw new NotFoundException('Không tìm thấy sản phẩm');
+    if (!product || product.isDelete) {
+      throw new NotFoundException({
+        code: ErrorCode.PRODUCT_NOT_FOUND,
+        message: 'Không tìm thấy sản phẩm',
+      });
     }
     // Dedupe trước khi ghi — client gửi trùng id sẽ đụng @@unique([collectionId,
     // productId]) và ném P2002 thô nếu không lọc trước.
     const collectionIds = [...new Set(dto.collectionIds)];
-    if (collectionIds.length > 0) {
-      await this.assertCollectionsExist(collectionIds);
+
+    // Chỉ check "tồn tại & chưa xóa & chưa ENDED" cho bộ sưu tập MỚI thêm vào — bộ sưu
+    // tập sản phẩm đã thuộc từ trước (kể cả sau đó bị ENDED hoặc xóa mềm) vẫn được giữ
+    // nguyên khi ghi đè lại toàn bộ danh sách, không bị chặn nhầm chỉ vì FE luôn gửi lại
+    // nguyên set cũ (khớp cách assignProducts() bên CollectionsService xử lý chiều ngược lại).
+    const currentCollectionIds = new Set(
+      product.collections.map((cp) => cp.collectionId),
+    );
+    const newlyAddedIds = collectionIds.filter(
+      (id) => !currentCollectionIds.has(id),
+    );
+    if (newlyAddedIds.length > 0) {
+      await this.assertCollectionsExist(newlyAddedIds);
+      await this.assertCollectionsNotEnded(newlyAddedIds);
     }
 
     await this.prisma.$transaction([
@@ -385,7 +420,10 @@ export class ProductsService {
       where: { productId, collectionId },
     });
     if (count === 0) {
-      throw new NotFoundException('Sản phẩm không thuộc bộ sưu tập này');
+      throw new NotFoundException({
+        code: ErrorCode.PRODUCT_NOT_IN_COLLECTION,
+        message: 'Sản phẩm không thuộc bộ sưu tập này',
+      });
     }
   }
 
@@ -398,7 +436,10 @@ export class ProductsService {
       where: { id: variantId },
     });
     if (!variant || variant.productId !== productId) {
-      throw new NotFoundException('Không tìm thấy biến thể sản phẩm');
+      throw new NotFoundException({
+        code: ErrorCode.PRODUCT_VARIANT_NOT_FOUND,
+        message: 'Không tìm thấy biến thể sản phẩm',
+      });
     }
 
     return this.prisma.productVariant.update({
@@ -422,7 +463,10 @@ export class ProductsService {
     for (const item of incoming) {
       if (item.id) {
         if (!existingIds.has(item.id)) {
-          throw new NotFoundException(`Không tìm thấy biến thể ${item.id}`);
+          throw new NotFoundException({
+            code: ErrorCode.PRODUCT_VARIANT_NOT_FOUND,
+            message: `Không tìm thấy biến thể ${item.id}`,
+          });
         }
         keepIds.add(item.id);
         const current = existingVariants.find((v) => v.id === item.id)!;
@@ -482,9 +526,10 @@ export class ProductsService {
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2003'
         ) {
-          throw new ConflictException(
-            `Không thể xóa biến thể ${variant.sku} vì đã được dùng trong đơn hàng/giỏ hàng`,
-          );
+          throw new ConflictException({
+            code: ErrorCode.PRODUCT_VARIANT_DELETE_BLOCKED_IN_USE,
+            message: `Không thể xóa biến thể ${variant.sku} vì đã được dùng trong đơn hàng/giỏ hàng`,
+          });
         }
         throw err;
       }
@@ -493,20 +538,52 @@ export class ProductsService {
 
   private async assertCollectionsExist(collectionIds: string[]): Promise<void> {
     const uniqueIds = new Set(collectionIds);
+    // isDelete: false — bộ sưu tập đã xóa mềm coi như không tồn tại. Thiếu điều kiện này
+    // thì 1 bộ sưu tập UPCOMING (endDate còn ở tương lai) đã bị xóa mềm vẫn lọt qua được
+    // assertCollectionsNotEnded() (chỉ chặn theo endDate, không biết đã xóa), sản phẩm
+    // mới vẫn gán được vào bộ sưu tập đã "xóa" — khớp assertCategoryExists() ở
+    // categories.service.ts / assertProductsExist() ở collections.service.ts.
     const count = await this.prisma.collection.count({
-      where: { id: { in: [...uniqueIds] } },
+      where: { id: { in: [...uniqueIds] }, isDelete: false },
     });
     if (count !== uniqueIds.size) {
-      throw new BadRequestException(
-        'Có bộ sưu tập không tồn tại trong danh sách gán',
-      );
+      throw new BadRequestException({
+        code: ErrorCode.PRODUCT_COLLECTION_NOT_FOUND,
+        message: 'Có bộ sưu tập không tồn tại trong danh sách gán',
+      });
+    }
+  }
+
+  // Không cho gán sản phẩm vào bộ sưu tập đã ENDED — khớp rule "collection đã kết thúc
+  // thì không cho gán/gỡ sản phẩm nữa" ở collections.service.ts, chặn luôn ở chiều
+  // ngược lại (gán qua form sản phẩm) để không bypass được qua đường khác.
+  private async assertCollectionsNotEnded(
+    collectionIds: string[],
+  ): Promise<void> {
+    const collections = await this.prisma.collection.findMany({
+      where: { id: { in: collectionIds } },
+      select: { endDate: true },
+    });
+    const today = toDateOnly(new Date());
+    const hasEnded = collections.some((c) => toDateOnly(c.endDate) < today);
+    if (hasEnded) {
+      throw new BadRequestException({
+        code: ErrorCode.PRODUCT_COLLECTION_ENDED,
+        message:
+          'Có bộ sưu tập đã kết thúc trong danh sách gán — không thể gán sản phẩm vào bộ sưu tập đã kết thúc',
+      });
     }
   }
 
   private async assertCategoryExists(id: string): Promise<void> {
     const category = await this.prisma.category.findUnique({ where: { id } });
-    if (!category) {
-      throw new BadRequestException('Danh mục không tồn tại');
+    // Danh mục đã xóa mềm coi như không tồn tại — không cho gán sản phẩm mới/đổi sang
+    // danh mục đã xóa (khớp assertCategoryExists() ở categories.service.ts).
+    if (!category || category.isDelete) {
+      throw new BadRequestException({
+        code: ErrorCode.PRODUCT_CATEGORY_NOT_FOUND,
+        message: 'Danh mục không tồn tại',
+      });
     }
   }
 
@@ -515,7 +592,10 @@ export class ProductsService {
     basePrice: number,
   ): void {
     if (salePrice != null && salePrice >= basePrice) {
-      throw new BadRequestException('Giá khuyến mãi phải nhỏ hơn giá gốc');
+      throw new BadRequestException({
+        code: ErrorCode.PRODUCT_SALE_PRICE_INVALID,
+        message: 'Giá khuyến mãi phải nhỏ hơn giá gốc',
+      });
     }
   }
 
@@ -659,9 +739,10 @@ function assertNoDuplicateVariants(
   for (const variant of variants) {
     const key = `${variant.size.trim().toLowerCase()}|${variant.color.trim().toLowerCase()}`;
     if (seen.has(key)) {
-      throw new BadRequestException(
-        `Biến thể trùng lặp: size "${variant.size}" + màu "${variant.color}"`,
-      );
+      throw new BadRequestException({
+        code: ErrorCode.PRODUCT_VARIANT_DUPLICATE,
+        message: `Biến thể trùng lặp: size "${variant.size}" + màu "${variant.color}"`,
+      });
     }
     seen.add(key);
   }
@@ -679,9 +760,10 @@ function assertImagesPublicIdsAligned(
     imagePublicIds !== undefined &&
     images.length !== imagePublicIds.length
   ) {
-    throw new BadRequestException(
-      'images và imagePublicIds phải có cùng số lượng phần tử',
-    );
+    throw new BadRequestException({
+      code: ErrorCode.PRODUCT_IMAGES_MISALIGNED,
+      message: 'images và imagePublicIds phải có cùng số lượng phần tử',
+    });
   }
 }
 
