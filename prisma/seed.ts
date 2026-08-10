@@ -37,16 +37,36 @@ interface ProductSeed {
   basePrice: number;
 }
 
+// Suy ra từ khoá thời trang tiếng Anh theo tên sản phẩm (tiếng Việt) để ảnh seed liên
+// quan tới đúng loại trang phục thay vì ảnh random hoàn toàn không liên quan (núi, xe...).
+function resolveFashionKeyword(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes('vest') || n.includes('khoác')) return 'jacket,fashion';
+  if (n.includes('sơ mi')) return 'shirt,fashion';
+  if (n.includes('polo')) return 'poloshirt,fashion';
+  if (n.includes('thun')) return 'tshirt,fashion';
+  if (n.includes('len')) return 'sweater,fashion';
+  if (n.includes('kiểu')) return 'blouse,fashion';
+  if (n.includes('jean')) return 'jeans,fashion';
+  if (n.includes('jogger')) return 'joggerpants,fashion';
+  if (n.includes('short')) return 'shorts,fashion';
+  if (n.includes('quần âu')) return 'trousers,fashion';
+  if (n.includes('chân váy')) return 'skirt,fashion';
+  if (n.includes('váy')) return 'dress,fashion';
+  return 'fashion,clothing';
+}
+
 async function seedProduct(
   seed: ProductSeed,
   imageSeed: number,
 ): Promise<void> {
   const slug = generateSlug(seed.name);
-  const thumbnail = `https://picsum.photos/seed/${imageSeed}/600/800`;
+  const keyword = resolveFashionKeyword(seed.name);
+  const thumbnail = `https://loremflickr.com/600/800/${keyword}?lock=${imageSeed}`;
   const images = [
     thumbnail,
-    `https://picsum.photos/seed/${imageSeed + 1}/600/800`,
-    `https://picsum.photos/seed/${imageSeed + 2}/600/800`,
+    `https://loremflickr.com/600/800/${keyword}?lock=${imageSeed + 1}`,
+    `https://loremflickr.com/600/800/${keyword}?lock=${imageSeed + 2}`,
   ];
   // Ảnh seed không phải upload Cloudinary thật nên không có publicId thật — vẫn phải
   // set song song đủ số lượng với `images`, nếu không CMS sẽ báo lỗi lệch mảng khi admin
@@ -64,21 +84,19 @@ async function seedProduct(
 
   const existing = await prisma.product.findUnique({
     where: { slug },
-    select: { images: true, imagePublicIds: true },
+    select: { thumbnailPublicId: true },
   });
-  // Sản phẩm đã tồn tại và imagePublicIds đã khớp đủ số lượng với images hiện có (vd
-  // admin đã tự upload ảnh thật qua CMS, thay cho ảnh placeholder ban đầu) — không đụng
-  // lại thumbnail/images nữa, tránh chạy lại seed làm mất ảnh thật đã upload. Chỉ backfill
-  // publicId placeholder khớp đúng số lượng ảnh HIỆN CÓ khi thật sự còn thiếu.
-  const imageUpdate =
-    existing && existing.imagePublicIds.length === existing.images.length
-      ? {}
-      : {
-          thumbnailPublicId,
-          imagePublicIds: (existing?.images ?? images).map(
-            (_, i) => `seed-placeholder/${imageSeed + i}`,
-          ),
-        };
+  // Sản phẩm đã tồn tại nhưng thumbnailPublicId vẫn còn tiền tố "seed-placeholder/" —
+  // nghĩa là chưa từng bị admin thay ảnh thật qua CMS (ảnh thật upload Cloudinary có
+  // publicId khác hẳn) — an toàn để ghi đè sang ảnh placeholder mới mỗi lần chạy seed.
+  // Ngược lại (publicId khác, hoặc sản phẩm chưa tồn tại) thì giữ nguyên/tạo mới bình
+  // thường, không bao giờ ghi đè lên ảnh thật đã upload.
+  const stillPlaceholder =
+    !existing ||
+    (existing.thumbnailPublicId?.startsWith('seed-placeholder/') ?? false);
+  const imageUpdate = stillPlaceholder
+    ? { thumbnail, thumbnailPublicId, images, imagePublicIds }
+    : {};
 
   await prisma.product.upsert({
     where: { slug },
