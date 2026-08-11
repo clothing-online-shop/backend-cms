@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, Product, ProductVariant } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
-import { generateSlug } from '../../common/utils/slug.util';
+import { generateSlug, generateSku } from '../../common/utils/slug.util';
 import { UploadService } from '../upload/upload.service';
 import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -621,8 +621,8 @@ export class ProductsService {
     excludeVariantId?: string,
   ): Promise<string> {
     const base = explicit
-      ? generateSlug(explicit)
-      : generateSlug(`${productSlug}-${size}-${color}`);
+      ? generateSku(explicit)
+      : generateSku(`${productSlug}-${size}-${color}`);
     let candidate = base;
     let suffix = 2;
 
