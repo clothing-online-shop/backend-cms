@@ -21,7 +21,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
-  ) {}
+  ) { }
 
   async login(
     dto: LoginDto,
@@ -58,7 +58,7 @@ export class AuthService {
         ),
       });
     } catch {
-      throw new UnauthorizedException('Refresh token không hợp lệ');
+      throw new UnauthorizedException('Refresh token không hợp lệ.');
     }
 
     const candidates = await this.prisma.refreshToken.findMany({
@@ -79,7 +79,7 @@ export class AuthService {
 
     if (!matchedTokenId) {
       throw new UnauthorizedException(
-        'Refresh token không hợp lệ hoặc đã bị thu hồi',
+        'Refresh token không hợp lệ. hoặc đã bị thu hồi',
       );
     }
 
