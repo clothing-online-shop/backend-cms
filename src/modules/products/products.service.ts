@@ -35,7 +35,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly uploadService: UploadService,
-  ) { }
+  ) {}
 
   async findAll(query: ListProductsQueryDto) {
     const page = query.page ?? 1;
@@ -48,7 +48,15 @@ export class ProductsService {
       where.status = query.status;
     }
 
-    if (query.category) {
+    if (query.categoryIds) {
+      // FE (cây checkbox 3 trạng thái) đã tự gộp phẳng id các danh mục con khi chọn
+      // danh mục cha — khớp thẳng, không tự mở rộng cây con như `category` bên dưới.
+      const ids = query.categoryIds.split(',').filter(Boolean);
+      if (ids.length === 0) {
+        return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+      }
+      where.categoryId = { in: ids };
+    } else if (query.category) {
       const categoryIds = await this.resolveCategoryIds(query.category);
       if (categoryIds.length === 0) {
         return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
@@ -232,10 +240,10 @@ export class ProductsService {
         variants: { create: variantsData },
         collections: collectionIds?.length
           ? {
-            create: collectionIds.map((collectionId) => ({
-              collectionId,
-            })),
-          }
+              create: collectionIds.map((collectionId) => ({
+                collectionId,
+              })),
+            }
           : undefined,
       },
       include: { variants: true },
@@ -428,14 +436,14 @@ export class ProductsService {
         const current = existingVariants.find((v) => v.id === item.id)!;
         const sku = item.sku
           ? await this.resolveUniqueSku(
-            tx,
-            item.sku,
-            productSlug,
-            item.size,
-            item.color,
-            usedSkus,
-            item.id,
-          )
+              tx,
+              item.sku,
+              productSlug,
+              item.size,
+              item.color,
+              usedSkus,
+              item.id,
+            )
           : current.sku;
         usedSkus.add(sku);
         await tx.productVariant.update({
