@@ -55,6 +55,7 @@ export class CategoriesService {
   }
 
   async create(dto: CreateCategoryDto): Promise<Category> {
+    assertImagePublicIdAligned(dto.image, dto.imagePublicId);
     if (dto.parentId) {
       await this.assertCategoryExists(dto.parentId);
     }
@@ -76,6 +77,7 @@ export class CategoriesService {
   }
 
   async update(id: string, dto: UpdateCategoryDto): Promise<Category> {
+    assertImagePublicIdAligned(dto.image, dto.imagePublicId);
     const existing = await this.assertCategoryExists(id);
 
     let slug = existing.slug;
@@ -330,5 +332,37 @@ function buildTree(
     }
   }
 
+  // productCount hiển thị ở màn quản lý cây danh mục cần cộng dồn cả danh mục con (danh
+  // mục cha là nhóm gộp, admin kỳ vọng thấy tổng số sản phẩm thuộc nhóm đó) — cộng dồn từ
+  // lá lên gốc, không ảnh hưởng tới productCount dùng để chặn xóa ở remove() (query riêng,
+  // vẫn đếm trực tiếp theo categoryId, đúng ý nghĩa "danh mục NÀY còn sản phẩm hay không").
+  addDescendantProductCounts(roots);
+
   return roots;
+}
+
+function addDescendantProductCounts(nodes: CategoryTreeNode[]): void {
+  for (const node of nodes) {
+    addDescendantProductCounts(node.children);
+    node.productCount += node.children.reduce(
+      (sum, child) => sum + child.productCount,
+      0,
+    );
+  }
+}
+
+// image/imagePublicId phải luôn đi cùng nhau — DB không tách bảng ảnh riêng để tra
+// publicId theo url, nếu client chỉ gửi 1 trong 2 thì field còn lại giữ nguyên giá trị cũ
+// trong khi image đã đổi, làm existing.imagePublicId ở update() không còn khớp với image
+// hiện tại nữa — lần đổi ảnh sau sẽ dọn nhầm/không dọn được đúng ảnh trên Cloudinary
+// (cùng lớp lỗi với assertImagesPublicIdsAligned ở products.service.ts).
+function assertImagePublicIdAligned(
+  image: string | null | undefined,
+  imagePublicId: string | null | undefined,
+): void {
+  if ((image !== undefined) !== (imagePublicId !== undefined)) {
+    throw new BadRequestException(
+      'image và imagePublicId phải được gửi cùng nhau',
+    );
+  }
 }

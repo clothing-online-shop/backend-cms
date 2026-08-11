@@ -43,12 +43,20 @@ export class ProductsService {
 
     const where: Prisma.ProductWhereInput = {};
     // Không dùng `if (query.status)` — ProductStatus.DRAFT giờ là 0 (falsy), filter theo
-    // "Nháp" sẽ bị bỏ qua nhầm như không lọc gì nếu chỉ check truthy.
+    // "Chưa mở bán" sẽ bị bỏ qua nhầm như không lọc gì nếu chỉ check truthy.
     if (query.status !== undefined) {
       where.status = query.status;
     }
 
-    if (query.category) {
+    if (query.categoryIds) {
+      // FE (cây checkbox 3 trạng thái) đã tự gộp phẳng id các danh mục con khi chọn
+      // danh mục cha — khớp thẳng, không tự mở rộng cây con như `category` bên dưới.
+      const ids = query.categoryIds.split(',').filter(Boolean);
+      if (ids.length === 0) {
+        return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+      }
+      where.categoryId = { in: ids };
+    } else if (query.category) {
       const categoryIds = await this.resolveCategoryIds(query.category);
       if (categoryIds.length === 0) {
         return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };

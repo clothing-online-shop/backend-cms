@@ -26,6 +26,16 @@ export class ListProductsQueryDto {
   @IsString()
   category?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Lọc theo nhiều id danh mục cùng lúc (mọi cấp), cách nhau bởi dấu phẩy — FE tự gộp ' +
+      'phẳng id các danh mục con khi chọn danh mục cha (xem cây checkbox lọc sản phẩm). Có ' +
+      'giá trị thì bỏ qua `category`, khớp thẳng categoryId, không tự mở rộng cây con.',
+  })
+  @IsOptional()
+  @IsString()
+  categoryIds?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
