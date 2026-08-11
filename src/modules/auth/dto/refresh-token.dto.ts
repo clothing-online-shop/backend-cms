@@ -3,6 +3,6 @@ import { IsString } from 'class-validator';
 
 export class RefreshTokenDto {
   @ApiProperty()
-  @IsString({ message: 'Refresh token không hợp lệ.' })
+  @IsString({ message: 'Refresh token không hợp lệ' })
   refreshToken: string;
 }

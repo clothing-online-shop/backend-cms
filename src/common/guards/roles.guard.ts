@@ -30,9 +30,7 @@ export class RolesGuard implements CanActivate {
     // Trả false thay vì throw thì Nest tự ném ForbiddenException() rỗng — message mặc
     // định "Forbidden" (tiếng Anh). Ném tường minh để có message tiếng Việt.
     if (!requiredRoles.includes(user?.role)) {
-      throw new ForbiddenException(
-        'Bạn không có quyền thực hiện thao tác này.',
-      );
+      throw new ForbiddenException('Bạn không có quyền thực hiện thao tác này');
     }
 
     return true;

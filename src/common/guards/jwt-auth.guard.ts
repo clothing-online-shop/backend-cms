@@ -13,7 +13,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   ): TUser {
     if (!user) {
       throw new UnauthorizedException(
-        'Phiên đăng nhập đã hết hạn hoặc không hợp lệ, vui lòng đăng nhập lại.',
+        'Phiên đăng nhập đã hết hạn hoặc không hợp lệ, vui lòng đăng nhập lại',
       );
     }
     return user;
