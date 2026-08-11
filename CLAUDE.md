@@ -31,6 +31,7 @@ src/modules/<ten-module>/
 - Ném `HttpException` con cháu chuẩn của Nest (`BadRequestException`, `ConflictException`, `UnauthorizedException`, `NotFoundException`...), không tự tạo response lỗi thủ công trong controller.
 - `AllExceptionsFilter` (global) đã format lỗi thành `{ statusCode, message, error, timestamp, path }` — không cần catch lại ở controller/service để format response.
 - Không để lộ message lỗi nội bộ (stack trace, câu lệnh SQL...) ra response cho client.
+- Mọi message tiếng Việt trả về client (message của `HttpException`, message validate ở DTO qua `class-validator` như `@IsEmail()`/`@MinLength()`...) phải kết thúc bằng dấu chấm — vd `'Không tìm thấy danh mục.'`, không phải `'Không tìm thấy danh mục'`.
 
 ## Auth & phân quyền
 

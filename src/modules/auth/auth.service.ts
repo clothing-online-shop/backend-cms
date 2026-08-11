@@ -28,20 +28,20 @@ export class AuthService {
   ): Promise<AuthTokens & { user: Omit<User, 'password'> }> {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
     }
 
     const passwordMatches = await argon2.verify(user.password, dto.password);
     if (!passwordMatches) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
     }
 
     if (!isAdminPanelRole(user.role)) {
-      throw new UnauthorizedException('Tài khoản không có quyền quản trị');
+      throw new UnauthorizedException('Tài khoản không có quyền quản trị.');
     }
 
     if (user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc vô hiệu hóa');
+      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc vô hiệu hóa.');
     }
 
     const tokens = await this.issueTokens(user);
@@ -58,7 +58,7 @@ export class AuthService {
         ),
       });
     } catch {
-      throw new UnauthorizedException('Refresh token không hợp lệ');
+      throw new UnauthorizedException('Refresh token không hợp lệ.');
     }
 
     const candidates = await this.prisma.refreshToken.findMany({
@@ -79,17 +79,17 @@ export class AuthService {
 
     if (!matchedTokenId) {
       throw new UnauthorizedException(
-        'Refresh token không hợp lệ hoặc đã bị thu hồi',
+        'Refresh token không hợp lệ hoặc đã bị thu hồi.',
       );
     }
 
     const user = await this.usersService.findById(payload.sub);
     if (!user || !isAdminPanelRole(user.role)) {
-      throw new UnauthorizedException('Người dùng không tồn tại');
+      throw new UnauthorizedException('Người dùng không tồn tại.');
     }
 
     if (user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc vô hiệu hóa');
+      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc vô hiệu hóa.');
     }
 
     await this.prisma.refreshToken.update({
