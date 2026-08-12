@@ -11,7 +11,7 @@ import type { AuthenticatedUser } from '../../modules/auth/strategies/jwt.strate
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) { }
+  constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
@@ -30,7 +30,9 @@ export class RolesGuard implements CanActivate {
     // Trả false thay vì throw thì Nest tự ném ForbiddenException() rỗng — message mặc
     // định "Forbidden" (tiếng Anh). Ném tường minh để có message tiếng Việt.
     if (!requiredRoles.includes(user?.role)) {
-      throw new ForbiddenException('Bạn không có quyền thực hiện thao tác này.');
+      throw new ForbiddenException(
+        'Bạn không có quyền thực hiện thao tác này.',
+      );
     }
 
     return true;
