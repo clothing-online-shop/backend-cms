@@ -48,7 +48,7 @@ export class CategoriesService {
       },
     });
 
-    if (!category) {
+    if (!category || category.isDelete) {
       throw new NotFoundException('Không tìm thấy danh mục');
     }
 
@@ -175,6 +175,7 @@ export class CategoriesService {
 
   async reorder(dto: ReorderCategoriesDto): Promise<void> {
     const all = await this.prisma.category.findMany({
+      where: { isDelete: false },
       select: { id: true, parentId: true, name: true },
     });
     const originalParentMap = new Map(all.map((c) => [c.id, c.parentId]));
@@ -247,7 +248,7 @@ export class CategoriesService {
 
   private async assertCategoryExists(id: string): Promise<Category> {
     const category = await this.prisma.category.findUnique({ where: { id } });
-    if (!category) {
+    if (!category || category.isDelete) {
       throw new NotFoundException('Không tìm thấy danh mục');
     }
     return category;
@@ -261,6 +262,7 @@ export class CategoriesService {
     const siblings = await this.prisma.category.findMany({
       where: {
         parentId,
+        isDelete: false,
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
       select: { name: true },
@@ -364,7 +366,7 @@ export class CategoriesService {
   // của nó lại vượt quá MAX_CATEGORY_DEPTH.
   private async computeSubtreeHeight(id: string): Promise<number> {
     const children = await this.prisma.category.findMany({
-      where: { parentId: id },
+      where: { parentId: id, isDelete: false },
       select: { id: true },
     });
     if (children.length === 0) return 0;
@@ -387,6 +389,7 @@ export class CategoriesService {
       await this.prisma.category.findFirst({
         where: {
           slug: candidate,
+          isDelete: false,
           ...(excludeId ? { id: { not: excludeId } } : {}),
         },
       })
