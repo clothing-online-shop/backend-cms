@@ -149,7 +149,13 @@ export class CollectionsService {
     collectionId: string,
     dto: AssignProductsDto,
   ): Promise<void> {
-    await this.findExisting(collectionId);
+    const collection = await this.findExisting(collectionId);
+    if (withStatus(collection).status === CollectionStatus.ENDED) {
+      throw new ConflictException({
+        message: 'Bộ sưu tập đã kết thúc — không thể gán/gỡ sản phẩm.',
+        code: ErrorCode.COLLECTION_ASSIGN_PRODUCTS_BLOCKED_ENDED,
+      });
+    }
     // Dedupe trước khi ghi — client gửi trùng id sẽ đụng @@unique([collectionId,
     // productId]) và ném P2002 thô nếu không lọc trước.
     const productIds = [...new Set(dto.productIds)];
@@ -166,6 +172,14 @@ export class CollectionsService {
   }
 
   async removeProduct(collectionId: string, productId: string): Promise<void> {
+    const collection = await this.findExisting(collectionId);
+    if (withStatus(collection).status === CollectionStatus.ENDED) {
+      throw new ConflictException({
+        message: 'Bộ sưu tập đã kết thúc — không thể gán/gỡ sản phẩm.',
+        code: ErrorCode.COLLECTION_ASSIGN_PRODUCTS_BLOCKED_ENDED,
+      });
+    }
+
     const { count } = await this.prisma.collectionProduct.deleteMany({
       where: { collectionId, productId },
     });
