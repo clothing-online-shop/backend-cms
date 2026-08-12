@@ -41,6 +41,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? (exceptionResponse as Record<string, unknown>).error
         : HttpStatus[statusCode];
 
+    const code =
+      exceptionResponse &&
+      typeof exceptionResponse === 'object' &&
+      'code' in exceptionResponse
+        ? (exceptionResponse as Record<string, unknown>).code
+        : undefined;
+
     this.logger.error(
       `${request.method} ${request.url} -> ${statusCode}`,
       isHttpException ? undefined : (exception as Error)?.stack,
@@ -56,6 +63,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode,
       message,
       error,
+      ...(code !== undefined ? { code } : {}),
       timestamp: new Date().toISOString(),
       path: request.url,
     });
