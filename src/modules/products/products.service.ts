@@ -19,6 +19,7 @@ import {
 } from './dto/list-products-query.dto';
 import { UpdateStockDto } from './dto/update-stock.dto';
 import { ErrorCode } from '../../common/constants/error-codes';
+import { isCollectionEnded } from '../collections/collection-status.util';
 
 type Db = Prisma.TransactionClient;
 type ProductWithStockVariants = Product & {
@@ -194,7 +195,11 @@ export class ProductsService {
       ? [...new Set(dto.collectionIds)]
       : undefined;
     if (collectionIds?.length) {
-      await this.assertCollectionsExist(collectionIds);
+      // Sản phẩm mới tạo, chưa có collection nào trước đó — mọi id trong danh sách đều
+      // là "mới thêm", nên check ENDED áp dụng cho toàn bộ.
+      const endDateByCollectionId =
+        await this.assertCollectionsExist(collectionIds);
+      this.assertNoEndedCollections(endDateByCollectionId, collectionIds);
     }
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
@@ -372,7 +377,29 @@ export class ProductsService {
     // productId]) và ném P2002 thô nếu không lọc trước.
     const collectionIds = [...new Set(dto.collectionIds)];
     if (collectionIds.length > 0) {
-      await this.assertCollectionsExist(collectionIds);
+      const endDateByCollectionId =
+        await this.assertCollectionsExist(collectionIds);
+      // Đây là endpoint "thay thế toàn bộ" — FE gửi lại nguyên collection ENDED đã gán từ
+      // trước (client không có cách bỏ chọn vì UI ẩn hẳn collection ENDED khỏi danh sách
+      // chọn) lẫn với collection mới muốn thêm trong cùng 1 payload. Chỉ chặn ENDED cho id
+      // thực sự MỚI xuất hiện so với danh sách hiện có — giữ nguyên id cũ dù đã ENDED thì
+      // vẫn cho qua, nếu không sản phẩm đã từng gán vào 1 collection ENDED sẽ không bao giờ
+      // lưu lại được bước "Bộ sưu tập" nữa (kể cả khi chỉ muốn thêm 1 collection còn hạn).
+      const currentCollectionIds = new Set(
+        (
+          await this.prisma.collectionProduct.findMany({
+            where: { productId },
+            select: { collectionId: true },
+          })
+        ).map((cp) => cp.collectionId),
+      );
+      const newlyAddedCollectionIds = collectionIds.filter(
+        (id) => !currentCollectionIds.has(id),
+      );
+      this.assertNoEndedCollections(
+        endDateByCollectionId,
+        newlyAddedCollectionIds,
+      );
     }
 
     await this.prisma.$transaction([
@@ -513,7 +540,13 @@ export class ProductsService {
     }
   }
 
-  private async assertCollectionsExist(collectionIds: string[]): Promise<void> {
+  // Trả về endDate theo id để gọi nơi cần check thêm "đã kết thúc" — tách riêng khỏi check
+  // tồn tại vì assignCollections() chỉ cần chặn ENDED cho collection MỚI thêm vào, không
+  // chặn collection ENDED đã gán từ trước còn giữ nguyên trong danh sách (xem
+  // assignCollections()).
+  private async assertCollectionsExist(
+    collectionIds: string[],
+  ): Promise<Map<string, Date>> {
     const uniqueIds = new Set(collectionIds);
     const collections = await this.prisma.collection.findMany({
       where: { id: { in: [...uniqueIds] }, isDelete: false },
@@ -524,9 +557,17 @@ export class ProductsService {
         'Có bộ sưu tập không tồn tại trong danh sách gán',
       );
     }
-    if (
-      collections.some((collection) => isCollectionEnded(collection.endDate))
-    ) {
+    return new Map(collections.map((c) => [c.id, c.endDate]));
+  }
+
+  private assertNoEndedCollections(
+    endDateByCollectionId: Map<string, Date>,
+    collectionIdsToCheck: string[],
+  ): void {
+    const hasEnded = collectionIdsToCheck.some((id) =>
+      isCollectionEnded(endDateByCollectionId.get(id)!),
+    );
+    if (hasEnded) {
       throw new ConflictException({
         message:
           'Có bộ sưu tập đã kết thúc trong danh sách gán — không thể gán sản phẩm vào bộ sưu tập đã kết thúc.',
@@ -751,12 +792,4 @@ function toVariantDto(variant: ProductVariant) {
     stockQuantity: variant.stockQuantity,
     imageUrl: variant.imageUrl,
   };
-}
-
-// So sánh theo ngày lịch (bỏ qua giờ), khớp cách CollectionsService.withStatus() tính
-// trạng thái ENDED — collection kết thúc "hôm nay" vẫn coi là còn hiệu lực tới hết ngày.
-function isCollectionEnded(endDate: Date): boolean {
-  const toDateOnly = (date: Date) =>
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  return toDateOnly(new Date()) > toDateOnly(endDate);
 }

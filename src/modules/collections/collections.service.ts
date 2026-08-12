@@ -13,6 +13,7 @@ import { ListCollectionsQueryDto } from './dto/list-collections-query.dto';
 import { AssignProductsDto } from './dto/assign-products.dto';
 import { CollectionStatus } from './collection-status.enum';
 import { ErrorCode } from '../../common/constants/error-codes';
+import { toDateOnly, isCollectionEnded } from './collection-status.util';
 
 export type CollectionWithStatus = Collection & { status: CollectionStatus };
 
@@ -273,19 +274,14 @@ function assertStartDateNotInPast(startDate: string): void {
 
 // So sánh theo ngày lịch (bỏ qua giờ) để BST kết thúc "hôm nay" vẫn coi là RUNNING
 // tới hết ngày, thay vì rơi sang ENDED ngay từ 00:00.
-function toDateOnly(date: Date): number {
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-}
-
 function withStatus(collection: Collection): CollectionWithStatus {
   const today = toDateOnly(new Date());
   const start = toDateOnly(collection.startDate);
-  const end = toDateOnly(collection.endDate);
 
   let status: CollectionStatus;
   if (today < start) {
     status = CollectionStatus.UPCOMING;
-  } else if (today > end) {
+  } else if (isCollectionEnded(collection.endDate)) {
     status = CollectionStatus.ENDED;
   } else {
     status = CollectionStatus.RUNNING;
