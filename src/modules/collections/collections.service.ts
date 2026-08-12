@@ -27,12 +27,20 @@ export class CollectionsService {
     if (query.search) {
       where.name = { contains: query.search, mode: 'insensitive' };
     }
+    if (query.includeDeleted !== 'true') {
+      where.isDelete = false;
+    }
 
     const collections = await this.prisma.collection.findMany({
       where,
       orderBy: { startDate: 'desc' },
     });
-    return collections.map(withStatus);
+    const withStatuses = collections.map(withStatus);
+    // status là field tính động (không nằm trong DB) nên lọc ENDED ở đây, sau khi đã
+    // map, thay vì đưa vào Prisma `where` phía trên.
+    return query.excludeEnded === 'true'
+      ? withStatuses.filter((c) => c.status !== CollectionStatus.ENDED)
+      : withStatuses;
   }
 
   async findOne(id: string): Promise<CollectionWithStatus> {
@@ -139,7 +147,20 @@ export class CollectionsService {
         code: ErrorCode.COLLECTION_DELETE_BLOCKED_RUNNING,
       });
     }
-    await this.prisma.collection.delete({ where: { id } });
+    // slug có @unique cứng ở tầng DB, không biết gì về isDelete — nếu giữ nguyên slug cũ,
+    // lần tạo/sửa sau tái sử dụng đúng slug đó sẽ đụng unique constraint. Đổi slug sang giá
+    // trị chắc chắn không đụng hàng (kèm id) để giải phóng slug gốc, cùng cách đã làm cho
+    // Category (xem categories.service.ts remove()). Xóa mềm không tự cascade gỡ
+    // CollectionProduct (cascade của Prisma chỉ chạy khi DELETE thật, không chạy khi chỉ
+    // update cờ isDelete) — phải chủ động deleteMany để sản phẩm không còn hiển thị "đang
+    // thuộc" 1 bộ sưu tập đã xóa.
+    await this.prisma.$transaction([
+      this.prisma.collectionProduct.deleteMany({ where: { collectionId: id } }),
+      this.prisma.collection.update({
+        where: { id },
+        data: { isDelete: true, slug: `${existing.slug}-deleted-${id}` },
+      }),
+    ]);
   }
 
   // Thay thế TOÀN BỘ danh sách sản phẩm của bộ sưu tập — cùng cách tiếp cận với
@@ -204,7 +225,7 @@ export class CollectionsService {
     const collection = await this.prisma.collection.findUnique({
       where: { id },
     });
-    if (!collection) {
+    if (!collection || collection.isDelete) {
       throw new NotFoundException('Không tìm thấy bộ sưu tập');
     }
     return collection;
@@ -222,6 +243,7 @@ export class CollectionsService {
       await this.prisma.collection.findFirst({
         where: {
           slug: candidate,
+          isDelete: false,
           ...(excludeId ? { id: { not: excludeId } } : {}),
         },
       })

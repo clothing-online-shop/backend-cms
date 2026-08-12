@@ -392,9 +392,9 @@ export class ProductsService {
   ): Promise<void> {
     const collection = await this.prisma.collection.findUnique({
       where: { id: collectionId },
-      select: { endDate: true },
+      select: { endDate: true, isDelete: true },
     });
-    if (!collection) {
+    if (!collection || collection.isDelete) {
       throw new NotFoundException('Không tìm thấy bộ sưu tập');
     }
     if (isCollectionEnded(collection.endDate)) {
@@ -516,7 +516,7 @@ export class ProductsService {
   private async assertCollectionsExist(collectionIds: string[]): Promise<void> {
     const uniqueIds = new Set(collectionIds);
     const collections = await this.prisma.collection.findMany({
-      where: { id: { in: [...uniqueIds] } },
+      where: { id: { in: [...uniqueIds] }, isDelete: false },
       select: { id: true, endDate: true },
     });
     if (collections.length !== uniqueIds.size) {
