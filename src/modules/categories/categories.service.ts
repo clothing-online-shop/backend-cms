@@ -11,6 +11,7 @@ import { UploadService } from '../upload/upload.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
+import { ErrorCode } from '../../common/constants/error-codes';
 
 export interface CategoryTreeNode extends Category {
   productCount: number;
@@ -60,6 +61,7 @@ export class CategoriesService {
       await this.assertCategoryExists(dto.parentId);
     }
     await this.assertDepthWithinLimit(dto.parentId ?? null);
+    await this.assertNoDuplicateSiblingName(dto.name, dto.parentId ?? null);
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
 
@@ -94,6 +96,20 @@ export class CategoriesService {
         await this.assertNoCycle(id, dto.parentId);
       }
       await this.assertDepthWithinLimit(dto.parentId ?? null, id);
+    }
+
+    const nameChanged = dto.name !== undefined && dto.name !== existing.name;
+    const parentChanged =
+      dto.parentId !== undefined && dto.parentId !== existing.parentId;
+    if (nameChanged || parentChanged) {
+      const effectiveName = dto.name ?? existing.name;
+      const effectiveParentId =
+        dto.parentId === undefined ? existing.parentId : dto.parentId;
+      await this.assertNoDuplicateSiblingName(
+        effectiveName,
+        effectiveParentId,
+        id,
+      );
     }
 
     const imageChanged =
@@ -217,6 +233,30 @@ export class CategoriesService {
       throw new NotFoundException('Không tìm thấy danh mục');
     }
     return category;
+  }
+
+  private async assertNoDuplicateSiblingName(
+    name: string,
+    parentId: string | null,
+    excludeId?: string,
+  ): Promise<void> {
+    const siblings = await this.prisma.category.findMany({
+      where: {
+        parentId,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { name: true },
+    });
+    const normalized = name.trim().toLowerCase();
+    const isDuplicate = siblings.some(
+      (sibling) => sibling.name.trim().toLowerCase() === normalized,
+    );
+    if (isDuplicate) {
+      throw new ConflictException({
+        message: 'Đã tồn tại danh mục cùng tên trong cùng danh mục cha.',
+        code: ErrorCode.CATEGORY_NAME_DUPLICATE,
+      });
+    }
   }
 
   private async assertNoCycle(
