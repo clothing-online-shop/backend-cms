@@ -50,7 +50,7 @@ export class CategoriesService {
       where: { slug },
       include: {
         parent: true,
-        children: { orderBy: { sortOrder: 'asc' } },
+        children: { where: { isDelete: false }, orderBy: { sortOrder: 'asc' } },
       },
     });
 
@@ -121,8 +121,12 @@ export class CategoriesService {
     const imageChanged =
       dto.image !== undefined && dto.image !== existing.image;
 
-    const updated = await this.prisma.category.update({
-      where: { id },
+    // updateMany (không phải update) + check isDelete:false ngay trong where — chặn race
+    // giữa lúc assertCategoryExists() đọc dữ liệu ở trên và lúc ghi ở đây: nếu danh mục bị
+    // xóa mềm bởi 1 request khác đúng trong khoảng đó, update thường (chỉ where: {id}) vẫn
+    // ghi đè bình thường, coi như "hồi sinh" 1 bản ghi lẽ ra phải đóng băng sau khi xóa.
+    const { count } = await this.prisma.category.updateMany({
+      where: { id, isDelete: false },
       data: {
         name: dto.name,
         slug,
@@ -133,6 +137,12 @@ export class CategoriesService {
         isActive: dto.isActive,
         sortOrder: dto.sortOrder,
       },
+    });
+    if (count === 0) {
+      throw new NotFoundException('Không tìm thấy danh mục');
+    }
+    const updated = await this.prisma.category.findUniqueOrThrow({
+      where: { id },
     });
 
     // Best-effort, chạy SAU khi update DB đã thành công — dọn trước mà update sau đó
@@ -278,9 +288,9 @@ export class CategoriesService {
       },
       select: { name: true },
     });
-    const normalized = name.trim().toLowerCase();
+    const normalized = normalizeName(name);
     const isDuplicate = siblings.some(
-      (sibling) => sibling.name.trim().toLowerCase() === normalized,
+      (sibling) => normalizeName(sibling.name) === normalized,
     );
     if (isDuplicate) {
       throw new ConflictException({
@@ -307,7 +317,7 @@ export class CategoriesService {
       const seen = seenByParent.get(parentId) ?? new Set<string>();
       seenByParent.set(parentId, seen);
 
-      const normalized = nameMap.get(id)!.trim().toLowerCase();
+      const normalized = normalizeName(nameMap.get(id)!);
       if (seen.has(normalized)) {
         throw new ConflictException({
           message: 'Đã tồn tại danh mục cùng tên trong cùng danh mục cha.',
@@ -465,4 +475,11 @@ function assertImagePublicIdAligned(
       'image và imagePublicId phải được gửi cùng nhau',
     );
   }
+}
+
+// Dùng chung giữa assertNoDuplicateSiblingName (create/update) và
+// assertNoDuplicateNameInMovedGroups (reorder) — tránh 2 nơi tự viết lại rồi lệch nhau
+// nếu quy tắc chuẩn hóa tên đổi sau này (vd gộp khoảng trắng, so sánh theo locale...).
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase();
 }
