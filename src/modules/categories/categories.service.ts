@@ -147,7 +147,7 @@ export class CategoriesService {
 
     const [productCount, childrenCount] = await Promise.all([
       this.prisma.product.count({ where: { categoryId: id } }),
-      this.prisma.category.count({ where: { parentId: id } }),
+      this.prisma.category.count({ where: { parentId: id, isDelete: false } }),
     ]);
 
     if (productCount > 0) {
@@ -161,7 +161,10 @@ export class CategoriesService {
       );
     }
 
-    await this.prisma.category.delete({ where: { id } });
+    await this.prisma.category.update({
+      where: { id },
+      data: { isDelete: true },
+    });
 
     if (existing.imagePublicId) {
       await this.uploadService
