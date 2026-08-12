@@ -167,9 +167,14 @@ export class CategoriesService {
       );
     }
 
+    // slug có @unique cứng ở tầng DB, không biết gì về isDelete — nếu giữ nguyên slug cũ,
+    // lần tạo/sửa sau tái sử dụng đúng slug đó (được phép theo assertNoDuplicateSiblingName
+    // và resolveUniqueSlug, cả 2 đều bỏ qua bản ghi isDelete:true) sẽ đụng unique constraint
+    // và 500 ở tầng DB. Đổi slug sang giá trị chắc chắn không đụng hàng (kèm id) để giải
+    // phóng slug gốc cho lần tạo mới sau này.
     await this.prisma.category.update({
       where: { id },
-      data: { isDelete: true },
+      data: { isDelete: true, slug: `${existing.slug}-deleted-${id}` },
     });
 
     if (existing.imagePublicId) {
