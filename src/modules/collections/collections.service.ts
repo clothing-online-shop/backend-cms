@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import { UpdateCollectionDto } from './dto/update-collection.dto';
 import { ListCollectionsQueryDto } from './dto/list-collections-query.dto';
 import { AssignProductsDto } from './dto/assign-products.dto';
 import { CollectionStatus } from './collection-status.enum';
+import { ErrorCode } from '../../common/constants/error-codes';
 
 export type CollectionWithStatus = Collection & { status: CollectionStatus };
 
@@ -40,6 +42,7 @@ export class CollectionsService {
 
   async create(dto: CreateCollectionDto): Promise<CollectionWithStatus> {
     assertDateRange(dto.startDate, dto.endDate);
+    assertStartDateNotInPast(dto.startDate);
     const slug = await this.resolveUniqueSlug(dto.name);
 
     const collection = await this.prisma.collection.create({
@@ -60,10 +63,52 @@ export class CollectionsService {
     dto: UpdateCollectionDto,
   ): Promise<CollectionWithStatus> {
     const existing = await this.findExisting(id);
+    const { status } = withStatus(existing);
 
     const startDate = dto.startDate ?? existing.startDate.toISOString();
     const endDate = dto.endDate ?? existing.endDate.toISOString();
     assertDateRange(startDate, endDate);
+
+    const nameChanged = dto.name !== undefined && dto.name !== existing.name;
+    const startDateChanged =
+      dto.startDate !== undefined &&
+      new Date(dto.startDate).getTime() !== existing.startDate.getTime();
+    const endDateChanged =
+      dto.endDate !== undefined &&
+      new Date(dto.endDate).getTime() !== existing.endDate.getTime();
+    const bannerChanged =
+      dto.banner !== undefined && dto.banner !== existing.banner;
+    const descriptionChanged =
+      dto.description !== undefined && dto.description !== existing.description;
+
+    if (
+      status === CollectionStatus.RUNNING &&
+      (nameChanged || startDateChanged)
+    ) {
+      throw new ConflictException({
+        message:
+          'Bộ sưu tập đang diễn ra — không thể đổi tên hoặc ngày bắt đầu, chỉ được sửa banner/mô tả/ngày kết thúc.',
+        code: ErrorCode.COLLECTION_UPDATE_FIELD_BLOCKED_RUNNING,
+      });
+    }
+
+    if (
+      status === CollectionStatus.ENDED &&
+      (nameChanged ||
+        startDateChanged ||
+        endDateChanged ||
+        bannerChanged ||
+        descriptionChanged)
+    ) {
+      throw new ConflictException({
+        message: 'Bộ sưu tập đã kết thúc — không thể chỉnh sửa.',
+        code: ErrorCode.COLLECTION_UPDATE_BLOCKED_ENDED,
+      });
+    }
+
+    if (status === CollectionStatus.UPCOMING && startDateChanged) {
+      assertStartDateNotInPast(dto.startDate!);
+    }
 
     let slug = existing.slug;
     if (dto.name && dto.name !== existing.name) {
@@ -86,7 +131,14 @@ export class CollectionsService {
   }
 
   async remove(id: string): Promise<void> {
-    await this.findExisting(id);
+    const existing = await this.findExisting(id);
+    if (withStatus(existing).status === CollectionStatus.RUNNING) {
+      throw new ConflictException({
+        message:
+          'Không thể xóa bộ sưu tập đang diễn ra — đợi kết thúc hoặc sửa lại ngày kết thúc trước khi xóa.',
+        code: ErrorCode.COLLECTION_DELETE_BLOCKED_RUNNING,
+      });
+    }
     await this.prisma.collection.delete({ where: { id } });
   }
 
@@ -171,6 +223,15 @@ export class CollectionsService {
 function assertDateRange(startDate: string, endDate: string): void {
   if (new Date(endDate) < new Date(startDate)) {
     throw new BadRequestException('Ngày kết thúc phải sau ngày bắt đầu');
+  }
+}
+
+function assertStartDateNotInPast(startDate: string): void {
+  if (toDateOnly(new Date(startDate)) < toDateOnly(new Date())) {
+    throw new ConflictException({
+      message: 'Ngày bắt đầu không được ở trong quá khứ.',
+      code: ErrorCode.COLLECTION_START_DATE_IN_PAST,
+    });
   }
 }
 
