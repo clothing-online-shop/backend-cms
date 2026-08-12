@@ -172,9 +172,12 @@ export class CategoriesService {
 
   async reorder(dto: ReorderCategoriesDto): Promise<void> {
     const all = await this.prisma.category.findMany({
-      select: { id: true, parentId: true },
+      select: { id: true, parentId: true, name: true },
     });
-    const parentMap = new Map(all.map((c) => [c.id, c.parentId]));
+    const originalParentMap = new Map(all.map((c) => [c.id, c.parentId]));
+    const nameMap = new Map(all.map((c) => [c.id, c.name]));
+    const parentMap = new Map(originalParentMap);
+    const movedIntoParents = new Set<string | null>();
 
     for (const item of dto.items) {
       if (!parentMap.has(item.id)) {
@@ -188,6 +191,12 @@ export class CategoriesService {
         throw new NotFoundException(
           `Không tìm thấy danh mục cha ${item.parentId}`,
         );
+      }
+      if (
+        item.parentId !== undefined &&
+        item.parentId !== originalParentMap.get(item.id)
+      ) {
+        movedIntoParents.add(item.parentId);
       }
       if (item.parentId !== undefined) {
         parentMap.set(item.id, item.parentId);
@@ -213,6 +222,12 @@ export class CategoriesService {
         );
       }
     }
+
+    this.assertNoDuplicateNameInMovedGroups(
+      parentMap,
+      nameMap,
+      movedIntoParents,
+    );
 
     await this.prisma.$transaction(
       dto.items.map((item) =>
@@ -256,6 +271,34 @@ export class CategoriesService {
         message: 'Đã tồn tại danh mục cùng tên trong cùng danh mục cha.',
         code: ErrorCode.CATEGORY_NAME_DUPLICATE,
       });
+    }
+  }
+
+  // Chỉ so tên trong đúng (các) nhóm cha vừa nhận thêm node ở lần gọi này — không quét
+  // toàn cây, để dữ liệu trùng tên có sẵn từ trước (trước khi có validate này) ở nhánh
+  // không liên quan không làm chặn nhầm các thao tác kéo-thả khác.
+  private assertNoDuplicateNameInMovedGroups(
+    parentMap: Map<string, string | null>,
+    nameMap: Map<string, string>,
+    movedIntoParents: Set<string | null>,
+  ): void {
+    if (movedIntoParents.size === 0) return;
+
+    const seenByParent = new Map<string | null, Set<string>>();
+    for (const [id, parentId] of parentMap) {
+      if (!movedIntoParents.has(parentId)) continue;
+
+      const seen = seenByParent.get(parentId) ?? new Set<string>();
+      seenByParent.set(parentId, seen);
+
+      const normalized = nameMap.get(id)!.trim().toLowerCase();
+      if (seen.has(normalized)) {
+        throw new ConflictException({
+          message: 'Đã tồn tại danh mục cùng tên trong cùng danh mục cha.',
+          code: ErrorCode.CATEGORY_NAME_DUPLICATE,
+        });
+      }
+      seen.add(normalized);
     }
   }
 
