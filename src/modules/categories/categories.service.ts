@@ -29,9 +29,15 @@ export class CategoriesService {
     private readonly uploadService: UploadService,
   ) {}
 
-  async findTree(includeInactive: boolean): Promise<CategoryTreeNode[]> {
+  async findTree(
+    includeInactive: boolean,
+    includeDeleted: boolean,
+  ): Promise<CategoryTreeNode[]> {
     const categories = await this.prisma.category.findMany({
-      where: includeInactive ? undefined : { isActive: true },
+      where: {
+        ...(includeInactive ? {} : { isActive: true }),
+        ...(includeDeleted ? {} : { isDelete: false }),
+      },
       orderBy: { sortOrder: 'asc' },
       include: { _count: { select: { products: true } } },
     });
@@ -44,11 +50,11 @@ export class CategoriesService {
       where: { slug },
       include: {
         parent: true,
-        children: { orderBy: { sortOrder: 'asc' } },
+        children: { where: { isDelete: false }, orderBy: { sortOrder: 'asc' } },
       },
     });
 
-    if (!category) {
+    if (!category || category.isDelete) {
       throw new NotFoundException('Không tìm thấy danh mục');
     }
 
@@ -115,8 +121,12 @@ export class CategoriesService {
     const imageChanged =
       dto.image !== undefined && dto.image !== existing.image;
 
-    const updated = await this.prisma.category.update({
-      where: { id },
+    // updateMany (không phải update) + check isDelete:false ngay trong where — chặn race
+    // giữa lúc assertCategoryExists() đọc dữ liệu ở trên và lúc ghi ở đây: nếu danh mục bị
+    // xóa mềm bởi 1 request khác đúng trong khoảng đó, update thường (chỉ where: {id}) vẫn
+    // ghi đè bình thường, coi như "hồi sinh" 1 bản ghi lẽ ra phải đóng băng sau khi xóa.
+    const { count } = await this.prisma.category.updateMany({
+      where: { id, isDelete: false },
       data: {
         name: dto.name,
         slug,
@@ -127,6 +137,12 @@ export class CategoriesService {
         isActive: dto.isActive,
         sortOrder: dto.sortOrder,
       },
+    });
+    if (count === 0) {
+      throw new NotFoundException('Không tìm thấy danh mục');
+    }
+    const updated = await this.prisma.category.findUniqueOrThrow({
+      where: { id },
     });
 
     // Best-effort, chạy SAU khi update DB đã thành công — dọn trước mà update sau đó
@@ -147,7 +163,7 @@ export class CategoriesService {
 
     const [productCount, childrenCount] = await Promise.all([
       this.prisma.product.count({ where: { categoryId: id } }),
-      this.prisma.category.count({ where: { parentId: id } }),
+      this.prisma.category.count({ where: { parentId: id, isDelete: false } }),
     ]);
 
     if (productCount > 0) {
@@ -161,7 +177,15 @@ export class CategoriesService {
       );
     }
 
-    await this.prisma.category.delete({ where: { id } });
+    // slug có @unique cứng ở tầng DB, không biết gì về isDelete — nếu giữ nguyên slug cũ,
+    // lần tạo/sửa sau tái sử dụng đúng slug đó (được phép theo assertNoDuplicateSiblingName
+    // và resolveUniqueSlug, cả 2 đều bỏ qua bản ghi isDelete:true) sẽ đụng unique constraint
+    // và 500 ở tầng DB. Đổi slug sang giá trị chắc chắn không đụng hàng (kèm id) để giải
+    // phóng slug gốc cho lần tạo mới sau này.
+    await this.prisma.category.update({
+      where: { id },
+      data: { isDelete: true, slug: `${existing.slug}-deleted-${id}` },
+    });
 
     if (existing.imagePublicId) {
       await this.uploadService
@@ -172,6 +196,7 @@ export class CategoriesService {
 
   async reorder(dto: ReorderCategoriesDto): Promise<void> {
     const all = await this.prisma.category.findMany({
+      where: { isDelete: false },
       select: { id: true, parentId: true, name: true },
     });
     const originalParentMap = new Map(all.map((c) => [c.id, c.parentId]));
@@ -244,7 +269,7 @@ export class CategoriesService {
 
   private async assertCategoryExists(id: string): Promise<Category> {
     const category = await this.prisma.category.findUnique({ where: { id } });
-    if (!category) {
+    if (!category || category.isDelete) {
       throw new NotFoundException('Không tìm thấy danh mục');
     }
     return category;
@@ -258,6 +283,7 @@ export class CategoriesService {
     const siblings = await this.prisma.category.findMany({
       where: {
         parentId,
+        isDelete: false,
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
       select: { name: true },
@@ -361,7 +387,7 @@ export class CategoriesService {
   // của nó lại vượt quá MAX_CATEGORY_DEPTH.
   private async computeSubtreeHeight(id: string): Promise<number> {
     const children = await this.prisma.category.findMany({
-      where: { parentId: id },
+      where: { parentId: id, isDelete: false },
       select: { id: true },
     });
     if (children.length === 0) return 0;
@@ -384,6 +410,7 @@ export class CategoriesService {
       await this.prisma.category.findFirst({
         where: {
           slug: candidate,
+          isDelete: false,
           ...(excludeId ? { id: { not: excludeId } } : {}),
         },
       })
