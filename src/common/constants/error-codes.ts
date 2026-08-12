@@ -5,5 +5,6 @@ export const ErrorCode = {
   COLLECTION_UPDATE_BLOCKED_ENDED: 1104,
   COLLECTION_ASSIGN_PRODUCTS_BLOCKED_ENDED: 1105,
   PRODUCT_COLLECTION_ENDED: 1212,
+  CATEGORY_NAME_DUPLICATE: 1001,
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -122,6 +122,7 @@ model Category {
   image         String?
   imagePublicId String?
   isActive      Boolean    @default(true)
+  isDelete      Boolean    @default(false)
   sortOrder     Int        @default(0)
   parentId      String?
   parent        Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])

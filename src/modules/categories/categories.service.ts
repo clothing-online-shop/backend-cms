@@ -11,6 +11,7 @@ import { UploadService } from '../upload/upload.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
+import { ErrorCode } from '../../common/constants/error-codes';
 
 export interface CategoryTreeNode extends Category {
   productCount: number;
@@ -28,9 +29,15 @@ export class CategoriesService {
     private readonly uploadService: UploadService,
   ) {}
 
-  async findTree(includeInactive: boolean): Promise<CategoryTreeNode[]> {
+  async findTree(
+    includeInactive: boolean,
+    includeDeleted: boolean,
+  ): Promise<CategoryTreeNode[]> {
     const categories = await this.prisma.category.findMany({
-      where: includeInactive ? undefined : { isActive: true },
+      where: {
+        ...(includeInactive ? {} : { isActive: true }),
+        ...(includeDeleted ? {} : { isDelete: false }),
+      },
       orderBy: { sortOrder: 'asc' },
       include: { _count: { select: { products: true } } },
     });
@@ -43,11 +50,11 @@ export class CategoriesService {
       where: { slug },
       include: {
         parent: true,
-        children: { orderBy: { sortOrder: 'asc' } },
+        children: { where: { isDelete: false }, orderBy: { sortOrder: 'asc' } },
       },
     });
 
-    if (!category) {
+    if (!category || category.isDelete) {
       throw new NotFoundException('Không tìm thấy danh mục');
     }
 
@@ -60,6 +67,7 @@ export class CategoriesService {
       await this.assertCategoryExists(dto.parentId);
     }
     await this.assertDepthWithinLimit(dto.parentId ?? null);
+    await this.assertNoDuplicateSiblingName(dto.name, dto.parentId ?? null);
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
 
@@ -85,7 +93,9 @@ export class CategoriesService {
       slug = await this.resolveUniqueSlug(dto.slug, id);
     }
 
-    if (dto.parentId !== undefined && dto.parentId !== existing.parentId) {
+    const parentChanged =
+      dto.parentId !== undefined && dto.parentId !== existing.parentId;
+    if (parentChanged) {
       if (dto.parentId === id) {
         throw new BadRequestException('Danh mục không thể là cha của chính nó');
       }
@@ -96,11 +106,27 @@ export class CategoriesService {
       await this.assertDepthWithinLimit(dto.parentId ?? null, id);
     }
 
+    const nameChanged = dto.name !== undefined && dto.name !== existing.name;
+    if (nameChanged || parentChanged) {
+      const effectiveName = dto.name ?? existing.name;
+      const effectiveParentId =
+        dto.parentId === undefined ? existing.parentId : dto.parentId;
+      await this.assertNoDuplicateSiblingName(
+        effectiveName,
+        effectiveParentId,
+        id,
+      );
+    }
+
     const imageChanged =
       dto.image !== undefined && dto.image !== existing.image;
 
-    const updated = await this.prisma.category.update({
-      where: { id },
+    // updateMany (không phải update) + check isDelete:false ngay trong where — chặn race
+    // giữa lúc assertCategoryExists() đọc dữ liệu ở trên và lúc ghi ở đây: nếu danh mục bị
+    // xóa mềm bởi 1 request khác đúng trong khoảng đó, update thường (chỉ where: {id}) vẫn
+    // ghi đè bình thường, coi như "hồi sinh" 1 bản ghi lẽ ra phải đóng băng sau khi xóa.
+    const { count } = await this.prisma.category.updateMany({
+      where: { id, isDelete: false },
       data: {
         name: dto.name,
         slug,
@@ -111,6 +137,12 @@ export class CategoriesService {
         isActive: dto.isActive,
         sortOrder: dto.sortOrder,
       },
+    });
+    if (count === 0) {
+      throw new NotFoundException('Không tìm thấy danh mục');
+    }
+    const updated = await this.prisma.category.findUniqueOrThrow({
+      where: { id },
     });
 
     // Best-effort, chạy SAU khi update DB đã thành công — dọn trước mà update sau đó
@@ -131,7 +163,7 @@ export class CategoriesService {
 
     const [productCount, childrenCount] = await Promise.all([
       this.prisma.product.count({ where: { categoryId: id } }),
-      this.prisma.category.count({ where: { parentId: id } }),
+      this.prisma.category.count({ where: { parentId: id, isDelete: false } }),
     ]);
 
     if (productCount > 0) {
@@ -145,7 +177,15 @@ export class CategoriesService {
       );
     }
 
-    await this.prisma.category.delete({ where: { id } });
+    // slug có @unique cứng ở tầng DB, không biết gì về isDelete — nếu giữ nguyên slug cũ,
+    // lần tạo/sửa sau tái sử dụng đúng slug đó (được phép theo assertNoDuplicateSiblingName
+    // và resolveUniqueSlug, cả 2 đều bỏ qua bản ghi isDelete:true) sẽ đụng unique constraint
+    // và 500 ở tầng DB. Đổi slug sang giá trị chắc chắn không đụng hàng (kèm id) để giải
+    // phóng slug gốc cho lần tạo mới sau này.
+    await this.prisma.category.update({
+      where: { id },
+      data: { isDelete: true, slug: `${existing.slug}-deleted-${id}` },
+    });
 
     if (existing.imagePublicId) {
       await this.uploadService
@@ -156,9 +196,13 @@ export class CategoriesService {
 
   async reorder(dto: ReorderCategoriesDto): Promise<void> {
     const all = await this.prisma.category.findMany({
-      select: { id: true, parentId: true },
+      where: { isDelete: false },
+      select: { id: true, parentId: true, name: true },
     });
-    const parentMap = new Map(all.map((c) => [c.id, c.parentId]));
+    const originalParentMap = new Map(all.map((c) => [c.id, c.parentId]));
+    const nameMap = new Map(all.map((c) => [c.id, c.name]));
+    const parentMap = new Map(originalParentMap);
+    const movedIntoParents = new Set<string | null>();
 
     for (const item of dto.items) {
       if (!parentMap.has(item.id)) {
@@ -172,6 +216,12 @@ export class CategoriesService {
         throw new NotFoundException(
           `Không tìm thấy danh mục cha ${item.parentId}`,
         );
+      }
+      if (
+        item.parentId !== undefined &&
+        item.parentId !== originalParentMap.get(item.id)
+      ) {
+        movedIntoParents.add(item.parentId);
       }
       if (item.parentId !== undefined) {
         parentMap.set(item.id, item.parentId);
@@ -198,6 +248,12 @@ export class CategoriesService {
       }
     }
 
+    this.assertNoDuplicateNameInMovedGroups(
+      parentMap,
+      nameMap,
+      movedIntoParents,
+    );
+
     await this.prisma.$transaction(
       dto.items.map((item) =>
         this.prisma.category.update({
@@ -213,10 +269,63 @@ export class CategoriesService {
 
   private async assertCategoryExists(id: string): Promise<Category> {
     const category = await this.prisma.category.findUnique({ where: { id } });
-    if (!category) {
+    if (!category || category.isDelete) {
       throw new NotFoundException('Không tìm thấy danh mục');
     }
     return category;
+  }
+
+  private async assertNoDuplicateSiblingName(
+    name: string,
+    parentId: string | null,
+    excludeId?: string,
+  ): Promise<void> {
+    const siblings = await this.prisma.category.findMany({
+      where: {
+        parentId,
+        isDelete: false,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { name: true },
+    });
+    const normalized = normalizeName(name);
+    const isDuplicate = siblings.some(
+      (sibling) => normalizeName(sibling.name) === normalized,
+    );
+    if (isDuplicate) {
+      throw new ConflictException({
+        message: 'Đã tồn tại danh mục cùng tên trong cùng danh mục cha.',
+        code: ErrorCode.CATEGORY_NAME_DUPLICATE,
+      });
+    }
+  }
+
+  // Chỉ so tên trong đúng (các) nhóm cha vừa nhận thêm node ở lần gọi này — không quét
+  // toàn cây, để dữ liệu trùng tên có sẵn từ trước (trước khi có validate này) ở nhánh
+  // không liên quan không làm chặn nhầm các thao tác kéo-thả khác.
+  private assertNoDuplicateNameInMovedGroups(
+    parentMap: Map<string, string | null>,
+    nameMap: Map<string, string>,
+    movedIntoParents: Set<string | null>,
+  ): void {
+    if (movedIntoParents.size === 0) return;
+
+    const seenByParent = new Map<string | null, Set<string>>();
+    for (const [id, parentId] of parentMap) {
+      if (!movedIntoParents.has(parentId)) continue;
+
+      const seen = seenByParent.get(parentId) ?? new Set<string>();
+      seenByParent.set(parentId, seen);
+
+      const normalized = normalizeName(nameMap.get(id)!);
+      if (seen.has(normalized)) {
+        throw new ConflictException({
+          message: 'Đã tồn tại danh mục cùng tên trong cùng danh mục cha.',
+          code: ErrorCode.CATEGORY_NAME_DUPLICATE,
+        });
+      }
+      seen.add(normalized);
+    }
   }
 
   private async assertNoCycle(
@@ -278,7 +387,7 @@ export class CategoriesService {
   // của nó lại vượt quá MAX_CATEGORY_DEPTH.
   private async computeSubtreeHeight(id: string): Promise<number> {
     const children = await this.prisma.category.findMany({
-      where: { parentId: id },
+      where: { parentId: id, isDelete: false },
       select: { id: true },
     });
     if (children.length === 0) return 0;
@@ -301,6 +410,7 @@ export class CategoriesService {
       await this.prisma.category.findFirst({
         where: {
           slug: candidate,
+          isDelete: false,
           ...(excludeId ? { id: { not: excludeId } } : {}),
         },
       })
@@ -365,4 +475,11 @@ function assertImagePublicIdAligned(
       'image và imagePublicId phải được gửi cùng nhau',
     );
   }
+}
+
+// Dùng chung giữa assertNoDuplicateSiblingName (create/update) và
+// assertNoDuplicateNameInMovedGroups (reorder) — tránh 2 nơi tự viết lại rồi lệch nhau
+// nếu quy tắc chuẩn hóa tên đổi sau này (vd gộp khoảng trắng, so sánh theo locale...).
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase();
 }
