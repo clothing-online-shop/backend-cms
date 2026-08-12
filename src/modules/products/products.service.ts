@@ -18,6 +18,7 @@ import {
   ProductSort,
 } from './dto/list-products-query.dto';
 import { UpdateStockDto } from './dto/update-stock.dto';
+import { ErrorCode } from '../../common/constants/error-codes';
 
 type Db = Prisma.TransactionClient;
 type ProductWithStockVariants = Product & {
@@ -389,6 +390,19 @@ export class ProductsService {
     productId: string,
     collectionId: string,
   ): Promise<void> {
+    const collection = await this.prisma.collection.findUnique({
+      where: { id: collectionId },
+      select: { endDate: true },
+    });
+    if (!collection) {
+      throw new NotFoundException('Không tìm thấy bộ sưu tập');
+    }
+    if (isCollectionEnded(collection.endDate)) {
+      throw new BadRequestException(
+        'Bộ sưu tập đã kết thúc — không thể gỡ sản phẩm khỏi bộ sưu tập đã kết thúc.',
+      );
+    }
+
     const { count } = await this.prisma.collectionProduct.deleteMany({
       where: { productId, collectionId },
     });
@@ -501,13 +515,23 @@ export class ProductsService {
 
   private async assertCollectionsExist(collectionIds: string[]): Promise<void> {
     const uniqueIds = new Set(collectionIds);
-    const count = await this.prisma.collection.count({
+    const collections = await this.prisma.collection.findMany({
       where: { id: { in: [...uniqueIds] } },
+      select: { id: true, endDate: true },
     });
-    if (count !== uniqueIds.size) {
+    if (collections.length !== uniqueIds.size) {
       throw new BadRequestException(
         'Có bộ sưu tập không tồn tại trong danh sách gán',
       );
+    }
+    if (
+      collections.some((collection) => isCollectionEnded(collection.endDate))
+    ) {
+      throw new ConflictException({
+        message:
+          'Có bộ sưu tập đã kết thúc trong danh sách gán — không thể gán sản phẩm vào bộ sưu tập đã kết thúc.',
+        code: ErrorCode.PRODUCT_COLLECTION_ENDED,
+      });
     }
   }
 
@@ -727,4 +751,12 @@ function toVariantDto(variant: ProductVariant) {
     stockQuantity: variant.stockQuantity,
     imageUrl: variant.imageUrl,
   };
+}
+
+// So sánh theo ngày lịch (bỏ qua giờ), khớp cách CollectionsService.withStatus() tính
+// trạng thái ENDED — collection kết thúc "hôm nay" vẫn coi là còn hiệu lực tới hết ngày.
+function isCollectionEnded(endDate: Date): boolean {
+  const toDateOnly = (date: Date) =>
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  return toDateOnly(new Date()) > toDateOnly(endDate);
 }
