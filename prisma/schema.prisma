@@ -153,6 +153,7 @@ model Product {
   imagePublicIds    String[]      @default([])
   metaTitle         String?
   metaDescription   String?
+  isDelete          Boolean       @default(false)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 

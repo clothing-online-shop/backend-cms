@@ -43,7 +43,7 @@ export class ProductsService {
     const page = query.page ?? 1;
     const limit = query.limit ?? DEFAULT_PAGE_LIMIT;
 
-    const where: Prisma.ProductWhereInput = {};
+    const where: Prisma.ProductWhereInput = { isDelete: false };
     // Không dùng `if (query.status)` — ProductStatus.DRAFT giờ là 0 (falsy), filter theo
     // "Chưa mở bán" sẽ bị bỏ qua nhầm như không lọc gì nếu chỉ check truthy.
     if (query.status !== undefined) {
@@ -140,7 +140,7 @@ export class ProductsService {
       },
     });
 
-    if (!product) {
+    if (!product || product.isDelete) {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
 
@@ -149,6 +149,7 @@ export class ProductsService {
         categoryId: product.categoryId,
         id: { not: product.id },
         status: ProductStatus.ACTIVE,
+        isDelete: false,
       },
       include: { variants: { select: { stockQuantity: true } } },
       take: RELATED_PRODUCTS_LIMIT,
@@ -264,7 +265,9 @@ export class ProductsService {
       where: { id },
       include: { variants: true },
     });
-    if (!existing) {
+    // Đã xóa mềm coi như không tồn tại — không cho sửa 1 sản phẩm đã xóa, khớp
+    // assertCategoryExists() ở categories.service.ts / findExisting() ở collections.service.ts.
+    if (!existing || existing.isDelete) {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
 
@@ -293,8 +296,13 @@ export class ProductsService {
     assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.product.update({
-        where: { id },
+      // updateMany (không phải update) + check isDelete:false ngay trong where — chặn race
+      // giữa lúc đọc existing ở trên và lúc ghi ở đây: nếu sản phẩm bị xóa mềm bởi 1
+      // request khác đúng trong khoảng đó, update thường (chỉ where: {id}) vẫn ghi đè bình
+      // thường, coi như "hồi sinh" 1 bản ghi lẽ ra phải đóng băng sau khi xóa (cùng cách đã
+      // hardening cho Category, xem categories.service.ts update()).
+      const { count } = await tx.product.updateMany({
+        where: { id, isDelete: false },
         data: {
           name: dto.name,
           slug,
@@ -314,6 +322,9 @@ export class ProductsService {
           metaDescription: dto.metaDescription,
         },
       });
+      if (count === 0) {
+        throw new NotFoundException('Không tìm thấy sản phẩm');
+      }
 
       if (dto.variants) {
         await this.syncVariants(
@@ -343,22 +354,25 @@ export class ProductsService {
 
   async remove(id: string): Promise<void> {
     const existing = await this.prisma.product.findUnique({ where: { id } });
-    if (!existing) {
+    if (!existing || existing.isDelete) {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
-    try {
-      await this.prisma.product.delete({ where: { id } });
-    } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2003'
-      ) {
-        throw new ConflictException(
-          'Không thể xóa sản phẩm vì đã có biến thể được dùng trong đơn hàng/giỏ hàng',
-        );
-      }
-      throw err;
-    }
+
+    // Xóa mềm — trước đây xóa cứng nhưng variant đã dùng trong đơn hàng/giỏ hàng thì bị
+    // chặn hết (FK constraint chặn cascade-delete cả sản phẩm), xóa mềm tránh hẳn vấn đề
+    // đó, record vẫn còn để giữ lịch sử đơn hàng/review. Gỡ khỏi mọi bộ sưu tập luôn
+    // (CollectionProduct) — nếu không, sản phẩm đã xóa vẫn "dính" âm thầm trong bộ sưu tập
+    // cũ mà không có màn nào cho admin thấy để gỡ (AssignProductsModal.tsx chỉ hiện sản
+    // phẩm đang duyệt được, sản phẩm đã xóa không lọt vào danh sách chọn nên không bao giờ
+    // bỏ tick được), lâu dần thành dữ liệu rác. Không đổi slug (khác Category/Collection):
+    // slug sản phẩm ảnh hưởng URL public, không cần giải phóng để tái dùng.
+    await this.prisma.$transaction([
+      this.prisma.collectionProduct.deleteMany({ where: { productId: id } }),
+      this.prisma.product.update({
+        where: { id },
+        data: { isDelete: true },
+      }),
+    ]);
   }
 
   // Thay thế TOÀN BỘ danh sách bộ sưu tập của sản phẩm — cùng cách tiếp cận với
@@ -370,7 +384,7 @@ export class ProductsService {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
     });
-    if (!product) {
+    if (!product || product.isDelete) {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
     // Dedupe trước khi ghi — client gửi trùng id sẽ đụng @@unique([collectionId,
@@ -772,6 +786,7 @@ function toListItem(product: ProductWithStockVariants) {
     brandId: product.brandId,
     status: product.status,
     categoryId: product.categoryId,
+    isDelete: product.isDelete,
     totalStock: product.variants.reduce((sum, v) => sum + v.stockQuantity, 0),
     collections: (product.collections ?? []).map((cp) => ({
       id: cp.collection.id,

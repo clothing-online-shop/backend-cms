@@ -112,7 +112,8 @@ export class ProductsController {
   @Delete(':id')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({
-    summary: 'Xóa vĩnh viễn sản phẩm khỏi DB (Admin)',
+    summary:
+      'Xóa sản phẩm — xóa mềm (giữ lịch sử đơn hàng/review), tự gỡ khỏi mọi bộ sưu tập (Admin)',
   })
   remove(@Param('id') id: string) {
     return this.productsService.remove(id);

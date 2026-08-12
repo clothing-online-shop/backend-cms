@@ -15,7 +15,22 @@ import { CollectionStatus } from './collection-status.enum';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { toDateOnly, isCollectionEnded } from './collection-status.util';
 
-export type CollectionWithStatus = Collection & { status: CollectionStatus };
+export type CollectionWithStatus = Collection & {
+  status: CollectionStatus;
+  products: { id: string; name: string; slug: string }[];
+};
+
+// Chỉ lấy id/name/slug — đủ cho badge hiển thị (khớp shape ProductListItem.collections
+// bên products.service.ts, chiều ngược lại), không kéo cả object Product đầy đủ. Lọc
+// product.isDelete: false phòng dữ liệu cũ từ trước khi Product.remove() tự gỡ
+// CollectionProduct (xem products.service.ts remove()) — không lọc thì 1 sản phẩm đã xóa
+// mềm từ lâu, lỡ còn sót bản ghi nối cũ, vẫn hiện tên như đang thuộc bộ sưu tập.
+const PRODUCTS_INCLUDE = {
+  products: {
+    where: { product: { isDelete: false } },
+    include: { product: { select: { id: true, name: true, slug: true } } },
+  },
+} satisfies Prisma.CollectionInclude;
 
 @Injectable()
 export class CollectionsService {
@@ -35,6 +50,7 @@ export class CollectionsService {
     const collections = await this.prisma.collection.findMany({
       where,
       orderBy: { startDate: 'desc' },
+      include: PRODUCTS_INCLUDE,
     });
     const withStatuses = collections.map(withStatus);
     // status là field tính động (không nằm trong DB) nên lọc ENDED ở đây, sau khi đã
@@ -45,7 +61,13 @@ export class CollectionsService {
   }
 
   async findOne(id: string): Promise<CollectionWithStatus> {
-    const collection = await this.findExisting(id);
+    const collection = await this.prisma.collection.findUnique({
+      where: { id },
+      include: PRODUCTS_INCLUDE,
+    });
+    if (!collection || collection.isDelete) {
+      throw new NotFoundException('Không tìm thấy bộ sưu tập');
+    }
     return withStatus(collection);
   }
 
@@ -63,6 +85,7 @@ export class CollectionsService {
         startDate: new Date(dto.startDate),
         endDate: new Date(dto.endDate),
       },
+      include: PRODUCTS_INCLUDE,
     });
     return withStatus(collection);
   }
@@ -135,6 +158,7 @@ export class CollectionsService {
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
       },
+      include: PRODUCTS_INCLUDE,
     });
     return withStatus(updated);
   }
@@ -212,8 +236,12 @@ export class CollectionsService {
 
   private async assertProductsExist(productIds: string[]): Promise<void> {
     const uniqueIds = new Set(productIds);
+    // isDelete: false — sản phẩm đã xóa mềm coi như không tồn tại, không cho gán (lại)
+    // vào bộ sưu tập (khớp assertCategoryExists() ở categories.service.ts). Từ khi
+    // Product.remove() tự gỡ khỏi mọi CollectionProduct, kịch bản "gán lại đúng sản phẩm
+    // đã xóa vì FE gửi lại nguyên set cũ" không còn xảy ra nữa, nên siết luôn ở đây an toàn.
     const count = await this.prisma.product.count({
-      where: { id: { in: [...uniqueIds] } },
+      where: { id: { in: [...uniqueIds] }, isDelete: false },
     });
     if (count !== uniqueIds.size) {
       throw new BadRequestException(
@@ -273,8 +301,14 @@ function assertStartDateNotInPast(startDate: string): void {
 }
 
 // So sánh theo ngày lịch (bỏ qua giờ) để BST kết thúc "hôm nay" vẫn coi là RUNNING
-// tới hết ngày, thay vì rơi sang ENDED ngay từ 00:00.
-function withStatus(collection: Collection): CollectionWithStatus {
+// tới hết ngày, thay vì rơi sang ENDED ngay từ 00:00. `products` optional — 1 vài nơi gọi
+// hàm này chỉ cần lấy `.status` từ 1 bản ghi Collection trần (không include products, xem
+// update()), mặc định [] cho những chỗ đó.
+function withStatus(
+  collection: Collection & {
+    products?: { product: { id: string; name: string; slug: string } }[];
+  },
+): CollectionWithStatus {
   const today = toDateOnly(new Date());
   const start = toDateOnly(collection.startDate);
 
@@ -287,5 +321,9 @@ function withStatus(collection: Collection): CollectionWithStatus {
     status = CollectionStatus.RUNNING;
   }
 
-  return { ...collection, status };
+  return {
+    ...collection,
+    status,
+    products: (collection.products ?? []).map((cp) => cp.product),
+  };
 }
