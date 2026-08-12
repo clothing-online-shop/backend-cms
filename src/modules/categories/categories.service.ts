@@ -87,7 +87,9 @@ export class CategoriesService {
       slug = await this.resolveUniqueSlug(dto.slug, id);
     }
 
-    if (dto.parentId !== undefined && dto.parentId !== existing.parentId) {
+    const parentChanged =
+      dto.parentId !== undefined && dto.parentId !== existing.parentId;
+    if (parentChanged) {
       if (dto.parentId === id) {
         throw new BadRequestException('Danh mục không thể là cha của chính nó');
       }
@@ -99,8 +101,6 @@ export class CategoriesService {
     }
 
     const nameChanged = dto.name !== undefined && dto.name !== existing.name;
-    const parentChanged =
-      dto.parentId !== undefined && dto.parentId !== existing.parentId;
     if (nameChanged || parentChanged) {
       const effectiveName = dto.name ?? existing.name;
       const effectiveParentId =
@@ -262,9 +262,9 @@ export class CategoriesService {
       },
       select: { name: true },
     });
-    const normalized = name.trim().toLowerCase();
+    const normalized = normalizeName(name);
     const isDuplicate = siblings.some(
-      (sibling) => sibling.name.trim().toLowerCase() === normalized,
+      (sibling) => normalizeName(sibling.name) === normalized,
     );
     if (isDuplicate) {
       throw new ConflictException({
@@ -291,7 +291,7 @@ export class CategoriesService {
       const seen = seenByParent.get(parentId) ?? new Set<string>();
       seenByParent.set(parentId, seen);
 
-      const normalized = nameMap.get(id)!.trim().toLowerCase();
+      const normalized = normalizeName(nameMap.get(id)!);
       if (seen.has(normalized)) {
         throw new ConflictException({
           message: 'Đã tồn tại danh mục cùng tên trong cùng danh mục cha.',
@@ -448,4 +448,11 @@ function assertImagePublicIdAligned(
       'image và imagePublicId phải được gửi cùng nhau',
     );
   }
+}
+
+// Dùng chung giữa assertNoDuplicateSiblingName (create/update) và
+// assertNoDuplicateNameInMovedGroups (reorder) — tránh 2 nơi tự viết lại rồi lệch nhau
+// nếu quy tắc chuẩn hóa tên đổi sau này (vd gộp khoảng trắng, so sánh theo locale...).
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase();
 }
