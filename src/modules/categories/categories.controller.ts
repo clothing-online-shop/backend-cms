@@ -42,9 +42,21 @@ export class CategoriesController {
     type: Boolean,
     description: 'Admin dùng để xem cả danh mục đang ẩn',
   })
+  @ApiQuery({
+    name: 'includeDeleted',
+    required: false,
+    type: Boolean,
+    description: 'Admin dùng để xem cả danh mục đã xóa mềm',
+  })
   @ApiResponse({ status: 200, description: 'Cây danh mục (nested children)' })
-  findTree(@Query('includeInactive') includeInactive?: string) {
-    return this.categoriesService.findTree(includeInactive === 'true');
+  findTree(
+    @Query('includeInactive') includeInactive?: string,
+    @Query('includeDeleted') includeDeleted?: string,
+  ) {
+    return this.categoriesService.findTree(
+      includeInactive === 'true',
+      includeDeleted === 'true',
+    );
   }
 
   @Get(':slug')

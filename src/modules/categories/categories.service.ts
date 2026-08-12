@@ -29,9 +29,15 @@ export class CategoriesService {
     private readonly uploadService: UploadService,
   ) {}
 
-  async findTree(includeInactive: boolean): Promise<CategoryTreeNode[]> {
+  async findTree(
+    includeInactive: boolean,
+    includeDeleted: boolean,
+  ): Promise<CategoryTreeNode[]> {
     const categories = await this.prisma.category.findMany({
-      where: includeInactive ? undefined : { isActive: true },
+      where: {
+        ...(includeInactive ? {} : { isActive: true }),
+        ...(includeDeleted ? {} : { isDelete: false }),
+      },
       orderBy: { sortOrder: 'asc' },
       include: { _count: { select: { products: true } } },
     });
