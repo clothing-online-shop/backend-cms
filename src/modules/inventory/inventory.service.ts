@@ -89,7 +89,7 @@ export class InventoryService {
   async import(variantId: string, dto: ImportStockDto, userId: string) {
     const variant = await this.prisma.productVariant.findUnique({ where: { id: variantId } });
     if (!variant) {
-      throw new NotFoundException('Không tìm thấy biến thể sản phẩm');
+      throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
     }
 
     const [, updated] = await this.prisma.$transaction([
