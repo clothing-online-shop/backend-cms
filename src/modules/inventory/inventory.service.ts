@@ -1,9 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, StockMovementType } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
 import { ImportStockDto } from './dto/import-stock.dto';
 import { AdjustStockDto, AdjustStockType } from './dto/adjust-stock.dto';
+import { ListStockHistoryQueryDto } from './dto/list-stock-history-query.dto';
 
 const LOW_STOCK_THRESHOLD_KEY = 'lowStockThreshold';
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
@@ -37,7 +42,11 @@ export class InventoryService {
       ? {
           OR: [
             { sku: { contains: query.search, mode: 'insensitive' } },
-            { product: { name: { contains: query.search, mode: 'insensitive' } } },
+            {
+              product: {
+                name: { contains: query.search, mode: 'insensitive' },
+              },
+            },
           ],
         }
       : {};
@@ -56,7 +65,9 @@ export class InventoryService {
       this.prisma.productVariant.findMany({
         where,
         include: {
-          product: { select: { id: true, name: true, slug: true, thumbnail: true } },
+          product: {
+            select: { id: true, name: true, slug: true, thumbnail: true },
+          },
         },
         orderBy: { product: { name: 'asc' } },
         skip: (page - 1) * limit,
@@ -88,7 +99,9 @@ export class InventoryService {
   }
 
   async import(variantId: string, dto: ImportStockDto, userId: string) {
-    const variant = await this.prisma.productVariant.findUnique({ where: { id: variantId } });
+    const variant = await this.prisma.productVariant.findUnique({
+      where: { id: variantId },
+    });
     if (!variant) {
       throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
     }
@@ -113,7 +126,9 @@ export class InventoryService {
   }
 
   async adjust(variantId: string, dto: AdjustStockDto, userId: string) {
-    const variant = await this.prisma.productVariant.findUnique({ where: { id: variantId } });
+    const variant = await this.prisma.productVariant.findUnique({
+      where: { id: variantId },
+    });
     if (!variant) {
       throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
     }
@@ -125,7 +140,9 @@ export class InventoryService {
       delta = -dto.quantity!;
       movementType = StockMovementType.EXPORT;
       if (variant.stockQuantity + delta < 0) {
-        throw new BadRequestException('Số lượng xuất vượt quá tồn kho hiện có.');
+        throw new BadRequestException(
+          'Số lượng xuất vượt quá tồn kho hiện có.',
+        );
       }
     } else {
       delta = dto.actualQuantity! - variant.stockQuantity;
@@ -154,5 +171,66 @@ export class InventoryService {
     ]);
 
     return { stockQuantity: updated.stockQuantity };
+  }
+
+  async getHistory(query: ListStockHistoryQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const where: Prisma.StockMovementWhereInput = {
+      AND: [
+        query.variantId ? { productVariantId: query.variantId } : {},
+        query.productId
+          ? { productVariant: { productId: query.productId } }
+          : {},
+        query.type ? { type: query.type } : {},
+        query.from ? { createdAt: { gte: new Date(query.from) } } : {},
+        query.to ? { createdAt: { lte: new Date(query.to) } } : {},
+      ],
+    };
+
+    const [movements, total] = await this.prisma.$transaction([
+      this.prisma.stockMovement.findMany({
+        where,
+        include: {
+          productVariant: {
+            select: {
+              sku: true,
+              size: true,
+              color: true,
+              product: { select: { id: true, name: true } },
+            },
+          },
+          createdBy: { select: { fullName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.stockMovement.count({ where }),
+    ]);
+
+    return {
+      data: movements.map((movement) => ({
+        id: movement.id,
+        type: movement.type,
+        quantity: movement.quantity,
+        note: movement.note,
+        createdAt: movement.createdAt,
+        variantId: movement.productVariantId,
+        sku: movement.productVariant.sku,
+        size: movement.productVariant.size,
+        color: movement.productVariant.color,
+        productId: movement.productVariant.product.id,
+        productName: movement.productVariant.product.name,
+        createdByName: movement.createdBy?.fullName ?? 'Hệ thống',
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
   }
 }

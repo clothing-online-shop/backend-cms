@@ -21,7 +21,9 @@ export class AdjustStockDto {
   @IsEnum(AdjustStockType)
   type!: AdjustStockType;
 
-  @ApiPropertyOptional({ description: 'Bắt buộc khi type=EXPORT — số lượng xuất' })
+  @ApiPropertyOptional({
+    description: 'Bắt buộc khi type=EXPORT — số lượng xuất',
+  })
   @ValidateIf((o: AdjustStockDto) => o.type === AdjustStockType.EXPORT)
   @IsInt()
   @Min(1)
