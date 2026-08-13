@@ -27,7 +27,6 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
-import { UpdateStockDto } from './dto/update-stock.dto';
 import { AssignCollectionsDto } from './dto/assign-collections.dto';
 
 @ApiTags('products')
@@ -117,17 +116,6 @@ export class ProductsController {
   })
   remove(@Param('id') id: string) {
     return this.productsService.remove(id);
-  }
-
-  @Patch(':id/variants/:variantId/stock')
-  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
-  @ApiOperation({ summary: 'Cập nhật nhanh tồn kho 1 variant (Admin)' })
-  updateVariantStock(
-    @Param('id') id: string,
-    @Param('variantId') variantId: string,
-    @Body() dto: UpdateStockDto,
-  ) {
-    return this.productsService.updateVariantStock(id, variantId, dto);
   }
 
   @Put(':id/collections')
