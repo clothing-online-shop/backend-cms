@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -7,6 +7,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { ADMIN_PANEL_ROLES } from '../../common/constants/admin-panel-roles';
 import { InventoryService } from './inventory.service';
 import { UpdateInventorySettingsDto } from './dto/update-inventory-settings.dto';
+import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -14,6 +15,13 @@ import { UpdateInventorySettingsDto } from './dto/update-inventory-settings.dto'
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
+
+  @Get()
+  @Roles(...ADMIN_PANEL_ROLES)
+  @ApiOperation({ summary: 'Danh sách tồn kho theo biến thể (filter/phân trang)' })
+  findAll(@Query() query: ListInventoryQueryDto) {
+    return this.inventoryService.findAll(query);
+  }
 
   @Get('settings')
   @Roles(...ADMIN_PANEL_ROLES)
