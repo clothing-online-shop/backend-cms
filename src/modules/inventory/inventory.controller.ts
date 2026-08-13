@@ -11,6 +11,7 @@ import { InventoryService } from './inventory.service';
 import { UpdateInventorySettingsDto } from './dto/update-inventory-settings.dto';
 import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
 import { ImportStockDto } from './dto/import-stock.dto';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -53,5 +54,16 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.inventoryService.import(variantId, dto, user.id);
+  }
+
+  @Post('variants/:variantId/adjust')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: 'Xuất kho / điều chỉnh tồn kho cho 1 biến thể' })
+  adjustStock(
+    @Param('variantId') variantId: string,
+    @Body() dto: AdjustStockDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.adjust(variantId, dto, user.id);
   }
 }

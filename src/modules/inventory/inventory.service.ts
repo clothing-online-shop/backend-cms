@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StockMovementType } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
 import { ImportStockDto } from './dto/import-stock.dto';
+import { AdjustStockDto, AdjustStockType } from './dto/adjust-stock.dto';
 
 const LOW_STOCK_THRESHOLD_KEY = 'lowStockThreshold';
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
@@ -105,6 +106,50 @@ export class InventoryService {
       this.prisma.productVariant.update({
         where: { id: variantId },
         data: { stockQuantity: { increment: dto.quantity } },
+      }),
+    ]);
+
+    return { stockQuantity: updated.stockQuantity };
+  }
+
+  async adjust(variantId: string, dto: AdjustStockDto, userId: string) {
+    const variant = await this.prisma.productVariant.findUnique({ where: { id: variantId } });
+    if (!variant) {
+      throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
+    }
+
+    let delta: number;
+    let movementType: StockMovementType;
+
+    if (dto.type === AdjustStockType.EXPORT) {
+      delta = -dto.quantity!;
+      movementType = StockMovementType.EXPORT;
+      if (variant.stockQuantity + delta < 0) {
+        throw new BadRequestException('Số lượng xuất vượt quá tồn kho hiện có.');
+      }
+    } else {
+      delta = dto.actualQuantity! - variant.stockQuantity;
+      movementType = StockMovementType.ADJUSTMENT;
+      if (delta === 0) {
+        throw new BadRequestException(
+          'Số tồn thực tế trùng với hệ thống, không có gì để điều chỉnh.',
+        );
+      }
+    }
+
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.stockMovement.create({
+        data: {
+          productVariantId: variantId,
+          type: movementType,
+          quantity: delta,
+          note: dto.reason,
+          createdById: userId,
+        },
+      }),
+      this.prisma.productVariant.update({
+        where: { id: variantId },
+        data: { stockQuantity: { increment: delta } },
       }),
     ]);
 

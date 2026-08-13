@@ -208,3 +208,111 @@ describe('InventoryService — import', () => {
     });
   });
 });
+
+describe('InventoryService — adjust', () => {
+  function createAdjustPrismaMock(variant: { id: string; stockQuantity: number } | null) {
+    return {
+      productVariant: {
+        findUnique: jest.fn().mockResolvedValue(variant),
+        update: jest.fn(),
+      },
+      stockMovement: {
+        create: jest.fn(),
+      },
+      $transaction: jest.fn(),
+    } as unknown as PrismaService;
+  }
+
+  it('throws NotFoundException when the variant does not exist', async () => {
+    const prisma = createAdjustPrismaMock(null);
+    const service = new InventoryService(prisma);
+
+    await expect(
+      service.adjust('missing', { type: 'EXPORT', quantity: 1, reason: 'x' } as never, 'user-1'),
+    ).rejects.toThrow('Không tìm thấy biến thể sản phẩm.');
+  });
+
+  it('rejects EXPORT that would make stock negative', async () => {
+    const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 3 });
+    const service = new InventoryService(prisma);
+
+    await expect(
+      service.adjust('v1', { type: 'EXPORT', quantity: 10, reason: 'chuyển kho' } as never, 'user-1'),
+    ).rejects.toThrow('Số lượng xuất vượt quá tồn kho hiện có.');
+  });
+
+  it('applies EXPORT and records a negative movement', async () => {
+    const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 10 });
+    (prisma.$transaction as jest.Mock).mockResolvedValue([{}, { stockQuantity: 6 }]);
+    const service = new InventoryService(prisma);
+
+    const result = await service.adjust(
+      'v1',
+      { type: 'EXPORT', quantity: 4, reason: 'chuyển kho' } as never,
+      'user-1',
+    );
+
+    expect(result).toEqual({ stockQuantity: 6 });
+
+    // Verify stockMovement.create was called with correct data
+    expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+      data: {
+        productVariantId: 'v1',
+        type: 'EXPORT',
+        quantity: -4,
+        note: 'chuyển kho',
+        createdById: 'user-1',
+      },
+    });
+
+    // Verify productVariant.update was called with correct arguments
+    expect(prisma.productVariant.update).toHaveBeenCalledWith({
+      where: { id: 'v1' },
+      data: { stockQuantity: { increment: -4 } },
+    });
+  });
+
+  it('rejects ADJUSTMENT with no real change', async () => {
+    const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 8 });
+    const service = new InventoryService(prisma);
+
+    await expect(
+      service.adjust(
+        'v1',
+        { type: 'ADJUSTMENT', actualQuantity: 8, reason: 'kiểm kê' } as never,
+        'user-1',
+      ),
+    ).rejects.toThrow('Số tồn thực tế trùng với hệ thống, không có gì để điều chỉnh.');
+  });
+
+  it('applies ADJUSTMENT and records the signed delta', async () => {
+    const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 42 });
+    (prisma.$transaction as jest.Mock).mockResolvedValue([{}, { stockQuantity: 38 }]);
+    const service = new InventoryService(prisma);
+
+    const result = await service.adjust(
+      'v1',
+      { type: 'ADJUSTMENT', actualQuantity: 38, reason: 'kiểm kê thiếu hàng' } as never,
+      'user-1',
+    );
+
+    expect(result).toEqual({ stockQuantity: 38 });
+
+    // Verify stockMovement.create was called with correct data
+    expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+      data: {
+        productVariantId: 'v1',
+        type: 'ADJUSTMENT',
+        quantity: -4,
+        note: 'kiểm kê thiếu hàng',
+        createdById: 'user-1',
+      },
+    });
+
+    // Verify productVariant.update was called with correct arguments
+    expect(prisma.productVariant.update).toHaveBeenCalledWith({
+      where: { id: 'v1' },
+      data: { stockQuantity: { increment: -4 } },
+    });
+  });
+});
