@@ -31,7 +31,7 @@ Nguồn gốc: dòng công việc "B. Quản lý kho" trong bảng kế hoạch 
 - Loại giao dịch `RETURN` (trả hàng) — đã có sẵn trong enum nhưng KHÔNG expose ở UI/API sprint này, để dành khi làm luồng đổi/trả hàng gắn với đơn hàng.
 - Tự động trừ kho khi tạo đơn hàng / hoàn kho khi hủy đơn.
 - Ngưỡng cảnh báo riêng theo từng sản phẩm/biến thể (chỉ làm ngưỡng chung).
-- Vai trò nhân sự riêng cho kho (chỉ dùng role `ADMIN` sẵn có).
+- Vai trò nhân sự mới cho kho — không cần tạo, `UserRole.WAREHOUSE_STAFF` **đã có sẵn** trong schema/backend hiện tại (khác giả định ban đầu), và frontend đã chuẩn bị sẵn nhóm quyền `INVENTORY_ROLES = ["ADMIN", "WAREHOUSE_STAFF"]` ở `lib/permissions.ts` chờ đúng tính năng này — xem mục 3 và 5.
 
 ### Dọn dẹp kèm theo
 
@@ -108,14 +108,14 @@ class AdjustStockDto {
 ### Validate & lỗi chung
 
 - Tất cả field số lượng `@IsInt() @Min(...)` — không cho số âm/thập phân lọt qua validate tầng DTO.
-- `code` lỗi forward qua `AllExceptionsFilter` sẵn có (đúng pattern `ErrorCode` đã dùng ở Category/Collection) — thêm các key mới vào `src/common/constants/error-codes.ts`.
-- Ghi/sửa (`import`, `adjust`, `PUT /settings`) chỉ `ADMIN` (`@Roles(UserRole.ADMIN)` + `RolesGuard`, khớp convention hiện có). `GET` các loại chỉ cần `JwtAuthGuard`.
+- `src/common/constants/error-codes.ts` (`ErrorCode`) và phần forward `code` trong `AllExceptionsFilter` **chưa tồn tại** trên nhánh này/`develop` — chỉ có ở nhánh `feature/collection-lifecycle-rules` chưa merge. Sprint này KHÔNG dựng lại hạ tầng đó (tránh trùng lặp lần thứ 4 giữa các nhánh song song — đã xảy ra với Category/Collection/error-codes infra) — dùng thẳng `BadRequestException('message tiếng Việt rõ ràng')`/`ConflictException(...)` không kèm `code`. FE (`getErrorMessage()`) đã tự fallback dùng message thô từ BE khi không có `code` khớp, không mất thông tin. Khi nhánh kia merge vào `develop`, có thể bổ sung `code` cho các case ở đây sau.
+- Ghi/sửa (`import`, `adjust`, `PUT /settings`) — `@Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)` (khớp `INVENTORY_ROLES` FE đã chuẩn bị sẵn, cùng convention `products`/`orders` đang dùng). `GET` (`/inventory`, `/inventory/history`, `/inventory/settings`) — `@Roles(...ADMIN_PANEL_ROLES)` (cả `ADMIN`, `WAREHOUSE_STAFF`, `MARKETING` đều xem được, khớp pattern `collections.controller.ts`).
 
 ## 4. Frontend
 
 ### Routes & sidebar
 
-- `/inventory` — mục sidebar **"Tồn kho"**, tách riêng ngang hàng "Sản phẩm"/"Danh mục"/"Bộ sưu tập" (đúng cách sidebar hiện tại tổ chức — mỗi domain 1 mục cấp cao nhất, chưa có submenu lồng nhau ở đâu).
+- `/inventory` — mục sidebar **"Tồn kho"**, tách riêng ngang hàng "Sản phẩm"/"Danh mục"/"Bộ sưu tập" (đúng cách sidebar hiện tại tổ chức — mỗi domain 1 mục cấp cao nhất, chưa có submenu lồng nhau ở đâu). Ẩn/hiện mục này theo `INVENTORY_ROLES` (`lib/permissions.ts`, đã có sẵn) — không tự chế điều kiện role mới.
 - `/inventory/history` — trang con, breadcrumb `Tồn kho > Lịch sử`.
 
 ### `InventoryList.tsx` (`pages/inventory/`)
