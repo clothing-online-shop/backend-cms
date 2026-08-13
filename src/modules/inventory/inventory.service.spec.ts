@@ -52,3 +52,55 @@ describe('InventoryService — low-stock threshold', () => {
     });
   });
 });
+
+describe('InventoryService — findAll', () => {
+  function createFindAllPrismaMock() {
+    return {
+      systemConfig: { findUnique: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn(),
+      productVariant: { findMany: jest.fn(), count: jest.fn() },
+    } as unknown as PrismaService;
+  }
+
+  it('marks lowStockOnly filter using the configured threshold', async () => {
+    const prisma = createFindAllPrismaMock();
+    (prisma.$transaction as jest.Mock).mockResolvedValue([[], 0]);
+    const service = new InventoryService(prisma);
+
+    await service.findAll({ lowStockOnly: true, page: 1, limit: 20 });
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('maps variant + product fields into the response shape', async () => {
+    const prisma = createFindAllPrismaMock();
+    const variant = {
+      id: 'v1',
+      sku: 'SKU-1',
+      size: 'M',
+      color: 'Đen',
+      stockQuantity: 3,
+      product: { id: 'p1', name: 'Áo phông', slug: 'ao-phong', thumbnail: null },
+    };
+    (prisma.$transaction as jest.Mock).mockResolvedValue([[variant], 1]);
+    const service = new InventoryService(prisma);
+
+    const result = await service.findAll({ page: 1, limit: 20 });
+
+    expect(result.data).toEqual([
+      {
+        variantId: 'v1',
+        sku: 'SKU-1',
+        size: 'M',
+        color: 'Đen',
+        stockQuantity: 3,
+        lowStockThreshold: 5,
+        productId: 'p1',
+        productName: 'Áo phông',
+        productSlug: 'ao-phong',
+        thumbnail: null,
+      },
+    ]);
+    expect(result.meta).toEqual({ total: 1, page: 1, limit: 20, totalPages: 1 });
+  });
+});
