@@ -17,7 +17,6 @@ import {
   ListProductsQueryDto,
   ProductSort,
 } from './dto/list-products-query.dto';
-import { UpdateStockDto } from './dto/update-stock.dto';
 
 type Db = Prisma.TransactionClient;
 type ProductWithStockVariants = Product & {
@@ -395,24 +394,6 @@ export class ProductsService {
     if (count === 0) {
       throw new NotFoundException('Sản phẩm không thuộc bộ sưu tập này');
     }
-  }
-
-  async updateVariantStock(
-    productId: string,
-    variantId: string,
-    dto: UpdateStockDto,
-  ) {
-    const variant = await this.prisma.productVariant.findUnique({
-      where: { id: variantId },
-    });
-    if (!variant || variant.productId !== productId) {
-      throw new NotFoundException('Không tìm thấy biến thể sản phẩm');
-    }
-
-    return this.prisma.productVariant.update({
-      where: { id: variantId },
-      data: { stockQuantity: dto.stockQuantity },
-    });
   }
 
   private async syncVariants(
