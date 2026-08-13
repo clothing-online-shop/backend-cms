@@ -42,13 +42,19 @@ export class BannersService {
   async create(dto: CreateBannerDto): Promise<BannerWithStatus> {
     assertDateRange(dto.startDate, dto.endDate);
 
+    // Không mặc định sortOrder về 0 (default của cột) cho mọi banner mới — nếu không, các
+    // banner tạo liên tiếp đều cùng sortOrder=0, khiến nút lên/xuống ở FE hoán đổi 2 giá
+    // trị giống hệt nhau (no-op nhìn như không hoạt động). Banner mới luôn xếp cuối danh
+    // sách hiển thị theo mặc định.
+    const sortOrder = dto.sortOrder ?? (await this.resolveNextSortOrder());
+
     const banner = await this.prisma.banner.create({
       data: {
         title: dto.title,
         imageUrl: dto.imageUrl,
         imagePublicId: dto.imagePublicId,
         linkUrl: dto.linkUrl,
-        sortOrder: dto.sortOrder,
+        sortOrder,
         startDate: new Date(dto.startDate),
         endDate: new Date(dto.endDate),
       },
@@ -133,6 +139,14 @@ export class BannersService {
       throw new NotFoundException('Không tìm thấy banner');
     }
     return banner;
+  }
+
+  private async resolveNextSortOrder(): Promise<number> {
+    const last = await this.prisma.banner.findFirst({
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
+    return (last?.sortOrder ?? -1) + 1;
   }
 }
 
