@@ -153,3 +153,41 @@ describe('InventoryService — findAll', () => {
     expect(result.meta).toEqual({ total: 1, page: 1, limit: 20, totalPages: 1 });
   });
 });
+
+describe('InventoryService — import', () => {
+  function createImportPrismaMock(variant: { id: string; stockQuantity: number } | null) {
+    return {
+      productVariant: {
+        findUnique: jest.fn().mockResolvedValue(variant),
+        update: jest.fn(),
+      },
+      stockMovement: {
+        create: jest.fn(),
+      },
+      $transaction: jest.fn().mockResolvedValue([
+        {},
+        variant ? { ...variant, stockQuantity: variant.stockQuantity } : undefined,
+      ]),
+    } as unknown as PrismaService;
+  }
+
+  it('throws NotFoundException when the variant does not exist', async () => {
+    const prisma = createImportPrismaMock(null);
+    const service = new InventoryService(prisma);
+
+    await expect(
+      service.import('missing', { quantity: 10 }, 'user-1'),
+    ).rejects.toThrow('Không tìm thấy biến thể sản phẩm');
+  });
+
+  it('increments stock and records an IMPORT movement', async () => {
+    const prisma = createImportPrismaMock({ id: 'v1', stockQuantity: 5 });
+    (prisma.$transaction as jest.Mock).mockResolvedValue([{}, { stockQuantity: 15 }]);
+    const service = new InventoryService(prisma);
+
+    const result = await service.import('v1', { quantity: 10, note: 'lô mới' }, 'user-1');
+
+    expect(result).toEqual({ stockQuantity: 15 });
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
+});
