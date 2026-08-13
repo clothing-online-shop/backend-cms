@@ -320,13 +320,17 @@ model Review {
 }
 
 model Banner {
-  id        String   @id @default(cuid())
-  title     String
-  imageUrl  String
-  linkUrl   String?
-  isActive  Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  title         String
+  imageUrl      String
+  imagePublicId String?
+  linkUrl       String?
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  startDate     DateTime
+  endDate       DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@map("banners")
 }
