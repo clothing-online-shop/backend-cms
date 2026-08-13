@@ -8,4 +8,21 @@ export class ListCollectionsQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'Chỉ lấy bộ sưu tập chưa diễn ra/đang diễn ra (loại ENDED) — dùng cho nơi chọn bộ sưu tập để gán',
+  })
+  @IsOptional()
+  @IsString()
+  excludeEnded?: string;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description: 'Lấy cả bộ sưu tập đã xóa mềm',
+  })
+  @IsOptional()
+  @IsString()
+  includeDeleted?: string;
 }
