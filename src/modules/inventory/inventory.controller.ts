@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -12,6 +21,7 @@ import { UpdateInventorySettingsDto } from './dto/update-inventory-settings.dto'
 import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
 import { ImportStockDto } from './dto/import-stock.dto';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
+import { ListStockHistoryQueryDto } from './dto/list-stock-history-query.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -22,7 +32,9 @@ export class InventoryController {
 
   @Get()
   @Roles(...ADMIN_PANEL_ROLES)
-  @ApiOperation({ summary: 'Danh sách tồn kho theo biến thể (filter/phân trang)' })
+  @ApiOperation({
+    summary: 'Danh sách tồn kho theo biến thể (filter/phân trang)',
+  })
   findAll(@Query() query: ListInventoryQueryDto) {
     return this.inventoryService.findAll(query);
   }
@@ -31,7 +43,8 @@ export class InventoryController {
   @Roles(...ADMIN_PANEL_ROLES)
   @ApiOperation({ summary: 'Đọc ngưỡng cảnh báo sắp hết hàng' })
   async getSettings() {
-    const lowStockThreshold = await this.inventoryService.getLowStockThreshold();
+    const lowStockThreshold =
+      await this.inventoryService.getLowStockThreshold();
     return { lowStockThreshold };
   }
 
@@ -65,5 +78,12 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.inventoryService.adjust(variantId, dto, user.id);
+  }
+
+  @Get('history')
+  @Roles(...ADMIN_PANEL_ROLES)
+  @ApiOperation({ summary: 'Lịch sử giao dịch kho (filter/phân trang)' })
+  getHistory(@Query() query: ListStockHistoryQueryDto) {
+    return this.inventoryService.getHistory(query);
   }
 }

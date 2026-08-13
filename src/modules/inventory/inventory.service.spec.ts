@@ -73,10 +73,12 @@ describe('InventoryService — findAll', () => {
         return Promise.resolve([]);
       },
     );
-    (prisma.productVariant.count as jest.Mock).mockImplementation((args: any) => {
-      capturedCountWhere = args.where;
-      return Promise.resolve(0);
-    });
+    (prisma.productVariant.count as jest.Mock).mockImplementation(
+      (args: any) => {
+        capturedCountWhere = args.where;
+        return Promise.resolve(0);
+      },
+    );
     (prisma.$transaction as jest.Mock).mockImplementation((queries: any[]) => {
       return Promise.all(queries);
     });
@@ -129,7 +131,12 @@ describe('InventoryService — findAll', () => {
       size: 'M',
       color: 'Đen',
       stockQuantity: 3,
-      product: { id: 'p1', name: 'Áo phông', slug: 'ao-phong', thumbnail: null },
+      product: {
+        id: 'p1',
+        name: 'Áo phông',
+        slug: 'ao-phong',
+        thumbnail: null,
+      },
     };
     (prisma.$transaction as jest.Mock).mockResolvedValue([[variant], 1]);
     const service = new InventoryService(prisma);
@@ -150,12 +157,19 @@ describe('InventoryService — findAll', () => {
         thumbnail: null,
       },
     ]);
-    expect(result.meta).toEqual({ total: 1, page: 1, limit: 20, totalPages: 1 });
+    expect(result.meta).toEqual({
+      total: 1,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
+    });
   });
 });
 
 describe('InventoryService — import', () => {
-  function createImportPrismaMock(variant: { id: string; stockQuantity: number } | null) {
+  function createImportPrismaMock(
+    variant: { id: string; stockQuantity: number } | null,
+  ) {
     return {
       productVariant: {
         findUnique: jest.fn().mockResolvedValue(variant),
@@ -164,10 +178,14 @@ describe('InventoryService — import', () => {
       stockMovement: {
         create: jest.fn(),
       },
-      $transaction: jest.fn().mockResolvedValue([
-        {},
-        variant ? { ...variant, stockQuantity: variant.stockQuantity } : undefined,
-      ]),
+      $transaction: jest
+        .fn()
+        .mockResolvedValue([
+          {},
+          variant
+            ? { ...variant, stockQuantity: variant.stockQuantity }
+            : undefined,
+        ]),
     } as unknown as PrismaService;
   }
 
@@ -182,10 +200,17 @@ describe('InventoryService — import', () => {
 
   it('increments stock and records an IMPORT movement', async () => {
     const prisma = createImportPrismaMock({ id: 'v1', stockQuantity: 5 });
-    (prisma.$transaction as jest.Mock).mockResolvedValue([{}, { stockQuantity: 15 }]);
+    (prisma.$transaction as jest.Mock).mockResolvedValue([
+      {},
+      { stockQuantity: 15 },
+    ]);
     const service = new InventoryService(prisma);
 
-    const result = await service.import('v1', { quantity: 10, note: 'lô mới' }, 'user-1');
+    const result = await service.import(
+      'v1',
+      { quantity: 10, note: 'lô mới' },
+      'user-1',
+    );
 
     expect(result).toEqual({ stockQuantity: 15 });
     expect(prisma.$transaction).toHaveBeenCalled();
@@ -210,7 +235,9 @@ describe('InventoryService — import', () => {
 });
 
 describe('InventoryService — adjust', () => {
-  function createAdjustPrismaMock(variant: { id: string; stockQuantity: number } | null) {
+  function createAdjustPrismaMock(
+    variant: { id: string; stockQuantity: number } | null,
+  ) {
     return {
       productVariant: {
         findUnique: jest.fn().mockResolvedValue(variant),
@@ -228,7 +255,11 @@ describe('InventoryService — adjust', () => {
     const service = new InventoryService(prisma);
 
     await expect(
-      service.adjust('missing', { type: 'EXPORT', quantity: 1, reason: 'x' } as never, 'user-1'),
+      service.adjust(
+        'missing',
+        { type: 'EXPORT', quantity: 1, reason: 'x' } as never,
+        'user-1',
+      ),
     ).rejects.toThrow('Không tìm thấy biến thể sản phẩm.');
   });
 
@@ -237,13 +268,20 @@ describe('InventoryService — adjust', () => {
     const service = new InventoryService(prisma);
 
     await expect(
-      service.adjust('v1', { type: 'EXPORT', quantity: 10, reason: 'chuyển kho' } as never, 'user-1'),
+      service.adjust(
+        'v1',
+        { type: 'EXPORT', quantity: 10, reason: 'chuyển kho' } as never,
+        'user-1',
+      ),
     ).rejects.toThrow('Số lượng xuất vượt quá tồn kho hiện có.');
   });
 
   it('applies EXPORT and records a negative movement', async () => {
     const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 10 });
-    (prisma.$transaction as jest.Mock).mockResolvedValue([{}, { stockQuantity: 6 }]);
+    (prisma.$transaction as jest.Mock).mockResolvedValue([
+      {},
+      { stockQuantity: 6 },
+    ]);
     const service = new InventoryService(prisma);
 
     const result = await service.adjust(
@@ -282,17 +320,26 @@ describe('InventoryService — adjust', () => {
         { type: 'ADJUSTMENT', actualQuantity: 8, reason: 'kiểm kê' } as never,
         'user-1',
       ),
-    ).rejects.toThrow('Số tồn thực tế trùng với hệ thống, không có gì để điều chỉnh.');
+    ).rejects.toThrow(
+      'Số tồn thực tế trùng với hệ thống, không có gì để điều chỉnh.',
+    );
   });
 
   it('applies ADJUSTMENT and records the signed delta', async () => {
     const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 42 });
-    (prisma.$transaction as jest.Mock).mockResolvedValue([{}, { stockQuantity: 38 }]);
+    (prisma.$transaction as jest.Mock).mockResolvedValue([
+      {},
+      { stockQuantity: 38 },
+    ]);
     const service = new InventoryService(prisma);
 
     const result = await service.adjust(
       'v1',
-      { type: 'ADJUSTMENT', actualQuantity: 38, reason: 'kiểm kê thiếu hàng' } as never,
+      {
+        type: 'ADJUSTMENT',
+        actualQuantity: 38,
+        reason: 'kiểm kê thiếu hàng',
+      } as never,
       'user-1',
     );
 
@@ -314,5 +361,82 @@ describe('InventoryService — adjust', () => {
       where: { id: 'v1' },
       data: { stockQuantity: { increment: -4 } },
     });
+  });
+});
+
+describe('InventoryService — getHistory', () => {
+  it('maps movement + variant + product + creator fields into the response shape', async () => {
+    const movement = {
+      id: 'm1',
+      type: 'IMPORT',
+      quantity: 10,
+      note: 'lô mới',
+      createdAt: new Date('2026-08-13T00:00:00.000Z'),
+      productVariantId: 'v1',
+      productVariant: {
+        sku: 'SKU-1',
+        size: 'M',
+        color: 'Đen',
+        product: { id: 'p1', name: 'Áo phông' },
+      },
+      createdBy: { fullName: 'Quản trị viên' },
+    };
+    const prisma = {
+      $transaction: jest.fn().mockResolvedValue([[movement], 1]),
+      stockMovement: { findMany: jest.fn(), count: jest.fn() },
+    } as unknown as PrismaService;
+    const service = new InventoryService(prisma);
+
+    const result = await service.getHistory({ page: 1, limit: 20 });
+
+    expect(result.data).toEqual([
+      {
+        id: 'm1',
+        type: 'IMPORT',
+        quantity: 10,
+        note: 'lô mới',
+        createdAt: movement.createdAt,
+        variantId: 'v1',
+        sku: 'SKU-1',
+        size: 'M',
+        color: 'Đen',
+        productId: 'p1',
+        productName: 'Áo phông',
+        createdByName: 'Quản trị viên',
+      },
+    ]);
+    expect(result.meta).toEqual({
+      total: 1,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
+    });
+  });
+
+  it('falls back to "Hệ thống" when createdBy is null', async () => {
+    const movement = {
+      id: 'm2',
+      type: 'ADJUSTMENT',
+      quantity: -2,
+      note: 'kiểm kê',
+      createdAt: new Date('2026-08-13T00:00:00.000Z'),
+      productVariantId: 'v1',
+      productVariant: {
+        sku: 'SKU-1',
+        size: 'M',
+        color: 'Đen',
+        product: { id: 'p1', name: 'Áo phông' },
+      },
+      createdBy: null,
+    };
+    const prisma = {
+      $transaction: jest.fn().mockResolvedValue([[movement], 1]),
+      stockMovement: { findMany: jest.fn(), count: jest.fn() },
+    } as unknown as PrismaService;
+    const service = new InventoryService(prisma);
+
+    const result = await service.getHistory({ page: 1, limit: 20 });
+
+    expect(result.data[0].createdByName).toBe('Hệ thống');
   });
 });
