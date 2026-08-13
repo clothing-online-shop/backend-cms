@@ -1,13 +1,16 @@
-import { Body, Controller, Get, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { ADMIN_PANEL_ROLES } from '../../common/constants/admin-panel-roles';
 import { InventoryService } from './inventory.service';
 import { UpdateInventorySettingsDto } from './dto/update-inventory-settings.dto';
 import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
+import { ImportStockDto } from './dto/import-stock.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -39,5 +42,16 @@ export class InventoryController {
       dto.lowStockThreshold,
     );
     return { lowStockThreshold };
+  }
+
+  @Post('variants/:variantId/import')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: 'Nhập kho (cộng dồn) cho 1 biến thể' })
+  importStock(
+    @Param('variantId') variantId: string,
+    @Body() dto: ImportStockDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.import(variantId, dto, user.id);
   }
 }

@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, StockMovementType } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
+import { ImportStockDto } from './dto/import-stock.dto';
 
 const LOW_STOCK_THRESHOLD_KEY = 'lowStockThreshold';
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
@@ -83,5 +84,30 @@ export class InventoryService {
         totalPages: total === 0 ? 0 : Math.ceil(total / limit),
       },
     };
+  }
+
+  async import(variantId: string, dto: ImportStockDto, userId: string) {
+    const variant = await this.prisma.productVariant.findUnique({ where: { id: variantId } });
+    if (!variant) {
+      throw new NotFoundException('Không tìm thấy biến thể sản phẩm');
+    }
+
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.stockMovement.create({
+        data: {
+          productVariantId: variantId,
+          type: StockMovementType.IMPORT,
+          quantity: dto.quantity,
+          note: dto.note,
+          createdById: userId,
+        },
+      }),
+      this.prisma.productVariant.update({
+        where: { id: variantId },
+        data: { stockQuantity: { increment: dto.quantity } },
+      }),
+    ]);
+
+    return { stockQuantity: updated.stockQuantity };
   }
 }
