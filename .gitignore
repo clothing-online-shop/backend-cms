@@ -24,3 +24,6 @@ pnpm-debug.log*
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# superpowers brainstorming companion (mockup sessions, local-only)
+.superpowers/
