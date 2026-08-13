@@ -64,12 +64,61 @@ describe('InventoryService — findAll', () => {
 
   it('marks lowStockOnly filter using the configured threshold', async () => {
     const prisma = createFindAllPrismaMock();
-    (prisma.$transaction as jest.Mock).mockResolvedValue([[], 0]);
+    let capturedFindManyWhere: any;
+    let capturedCountWhere: any;
+
+    (prisma.productVariant.findMany as jest.Mock).mockImplementation(
+      (args: any) => {
+        capturedFindManyWhere = args.where;
+        return Promise.resolve([]);
+      },
+    );
+    (prisma.productVariant.count as jest.Mock).mockImplementation((args: any) => {
+      capturedCountWhere = args.where;
+      return Promise.resolve(0);
+    });
+    (prisma.$transaction as jest.Mock).mockImplementation((queries: any[]) => {
+      return Promise.all(queries);
+    });
+
     const service = new InventoryService(prisma);
 
     await service.findAll({ lowStockOnly: true, page: 1, limit: 20 });
 
-    expect(prisma.$transaction).toHaveBeenCalled();
+    // Verify lowStockOnly filter is in the AND array with the threshold value
+    expect(capturedFindManyWhere?.AND).toBeDefined();
+    const stockFilter = capturedFindManyWhere.AND.find(
+      (item: any) => item.stockQuantity?.lte !== undefined,
+    );
+    expect(stockFilter).toEqual({ stockQuantity: { lte: 5 } });
+    expect(capturedCountWhere).toEqual(capturedFindManyWhere);
+  });
+
+  it('does not add lowStockOnly filter when not requested', async () => {
+    const prisma = createFindAllPrismaMock();
+    let capturedFindManyWhere: any;
+
+    (prisma.productVariant.findMany as jest.Mock).mockImplementation(
+      (args: any) => {
+        capturedFindManyWhere = args.where;
+        return Promise.resolve([]);
+      },
+    );
+    (prisma.productVariant.count as jest.Mock).mockResolvedValue(0);
+    (prisma.$transaction as jest.Mock).mockImplementation((queries: any[]) => {
+      return Promise.all(queries);
+    });
+
+    const service = new InventoryService(prisma);
+
+    await service.findAll({ lowStockOnly: false, page: 1, limit: 20 });
+
+    // Verify lowStockOnly filter is NOT in the AND array
+    expect(capturedFindManyWhere?.AND).toBeDefined();
+    const stockFilter = capturedFindManyWhere.AND.find(
+      (item: any) => item.stockQuantity !== undefined,
+    );
+    expect(stockFilter).toBeUndefined();
   });
 
   it('maps variant + product fields into the response shape', async () => {
