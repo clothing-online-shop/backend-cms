@@ -547,7 +547,7 @@ describe('InventoryService — import', () => {
 
     await expect(
       service.import('missing', { quantity: 10 }, 'user-1'),
-    ).rejects.toThrow('Không tìm thấy biến thể sản phẩm');
+    ).rejects.toThrow('Không tìm thấy biến thể sản phẩm.');
   });
 
   it('increments stock and records an IMPORT movement', async () => {
@@ -597,7 +597,7 @@ Add import `NotFoundException` from `@nestjs/common` and `StockMovementType` fro
 async import(variantId: string, dto: ImportStockDto, userId: string) {
   const variant = await this.prisma.productVariant.findUnique({ where: { id: variantId } });
   if (!variant) {
-    throw new NotFoundException('Không tìm thấy biến thể sản phẩm');
+    throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
   }
 
   const [, updated] = await this.prisma.$transaction([
@@ -690,7 +690,7 @@ describe('InventoryService — adjust', () => {
 
     await expect(
       service.adjust('missing', { type: 'EXPORT', quantity: 1, reason: 'x' } as never, 'user-1'),
-    ).rejects.toThrow('Không tìm thấy biến thể sản phẩm');
+    ).rejects.toThrow('Không tìm thấy biến thể sản phẩm.');
   });
 
   it('rejects EXPORT that would make stock negative', async () => {
@@ -807,7 +807,7 @@ Add import `BadRequestException` (alongside `NotFoundException`) and `AdjustStoc
 async adjust(variantId: string, dto: AdjustStockDto, userId: string) {
   const variant = await this.prisma.productVariant.findUnique({ where: { id: variantId } });
   if (!variant) {
-    throw new NotFoundException('Không tìm thấy biến thể sản phẩm');
+    throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
   }
 
   let delta: number;
