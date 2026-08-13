@@ -7,6 +7,7 @@ import {
 import { Prisma, Product, ProductVariant } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug, generateSku } from '../../common/utils/slug.util';
+import { diffNewlyAdded } from '../../common/utils/diff.util';
 import { UploadService } from '../upload/upload.service';
 import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -197,10 +198,14 @@ export class ProductsService {
       : undefined;
     if (collectionIds?.length) {
       // Sản phẩm mới tạo, chưa có collection nào trước đó — mọi id trong danh sách đều
-      // là "mới thêm", nên check ENDED áp dụng cho toàn bộ.
+      // là "mới thêm", nên check ENDED/ACTIVE áp dụng cho toàn bộ.
       const endDateByCollectionId =
         await this.assertCollectionsExist(collectionIds);
       this.assertNoEndedCollections(endDateByCollectionId, collectionIds);
+      this.assertActiveIfAddingCollections(
+        dto.status ?? ProductStatus.DRAFT,
+        collectionIds,
+      );
     }
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
@@ -326,6 +331,15 @@ export class ProductsService {
         throw new NotFoundException('Không tìm thấy sản phẩm');
       }
 
+      // Đổi status sang DRAFT/INACTIVE — tự gỡ khỏi mọi bộ sưu tập đang gán, khớp lý do
+      // chặn gán mới ở assertActiveIfAddingCollections(): 1 bộ sưu tập dùng để quảng bá/
+      // trưng bày trên storefront không nên chứa sản phẩm nháp/ngừng kinh doanh. FE đã tự
+      // confirm với admin trước khi gửi request này (xem ProductForm.tsx handleSaveStep()),
+      // nên ở đây cứ thực hiện luôn, không hỏi lại.
+      if (dto.status !== undefined && dto.status !== ProductStatus.ACTIVE) {
+        await tx.collectionProduct.deleteMany({ where: { productId: id } });
+      }
+
       if (dto.variants) {
         await this.syncVariants(
           tx,
@@ -407,11 +421,18 @@ export class ProductsService {
           })
         ).map((cp) => cp.collectionId),
       );
-      const newlyAddedCollectionIds = collectionIds.filter(
-        (id) => !currentCollectionIds.has(id),
+      const newlyAddedCollectionIds = diffNewlyAdded(
+        collectionIds,
+        currentCollectionIds,
       );
       this.assertNoEndedCollections(
         endDateByCollectionId,
+        newlyAddedCollectionIds,
+      );
+      // Cùng lý do — chỉ chặn khi có collection MỚI thêm vào, giữ nguyên collection cũ đã
+      // gán từ lúc sản phẩm còn ACTIVE dù sau đó chuyển DRAFT/INACTIVE.
+      this.assertActiveIfAddingCollections(
+        product.status,
         newlyAddedCollectionIds,
       );
     }
@@ -587,6 +608,24 @@ export class ProductsService {
           'Có bộ sưu tập đã kết thúc trong danh sách gán — không thể gán sản phẩm vào bộ sưu tập đã kết thúc.',
         code: ErrorCode.PRODUCT_COLLECTION_ENDED,
       });
+    }
+  }
+
+  // Chỉ sản phẩm ĐANG MỞ BÁN (ACTIVE) mới được gán vào bộ sưu tập — bộ sưu tập dùng để
+  // quảng bá/trưng bày trên storefront, sản phẩm nháp (DRAFT)/ngừng kinh doanh (INACTIVE)
+  // không có lý do xuất hiện trong đó. Chỉ chặn khi thực sự có collection MỚI thêm vào
+  // (newlyAddedCollectionIds rỗng thì bỏ qua, khớp assertNoEndedCollections()).
+  private assertActiveIfAddingCollections(
+    productStatus: ProductStatus,
+    newlyAddedCollectionIds: string[],
+  ): void {
+    if (
+      newlyAddedCollectionIds.length > 0 &&
+      productStatus !== ProductStatus.ACTIVE
+    ) {
+      throw new BadRequestException(
+        'Chỉ có thể gán sản phẩm đang mở bán vào bộ sưu tập.',
+      );
     }
   }
 

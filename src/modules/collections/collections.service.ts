@@ -14,21 +14,33 @@ import { AssignProductsDto } from './dto/assign-products.dto';
 import { CollectionStatus } from './collection-status.enum';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { toDateOnly, isCollectionEnded } from './collection-status.util';
+import { ProductStatus } from '../products/product-status.enum';
+import { diffNewlyAdded } from '../../common/utils/diff.util';
 
 export type CollectionWithStatus = Collection & {
   status: CollectionStatus;
-  products: { id: string; name: string; slug: string }[];
+  products: {
+    id: string;
+    name: string;
+    slug: string;
+    thumbnail: string | null;
+  }[];
 };
 
-// Chỉ lấy id/name/slug — đủ cho badge hiển thị (khớp shape ProductListItem.collections
-// bên products.service.ts, chiều ngược lại), không kéo cả object Product đầy đủ. Lọc
-// product.isDelete: false phòng dữ liệu cũ từ trước khi Product.remove() tự gỡ
-// CollectionProduct (xem products.service.ts remove()) — không lọc thì 1 sản phẩm đã xóa
-// mềm từ lâu, lỡ còn sót bản ghi nối cũ, vẫn hiện tên như đang thuộc bộ sưu tập.
+// id/name/slug/thumbnail — đủ cho badge lẫn ảnh preview hiển thị (khớp shape
+// ProductListItem.collections bên products.service.ts, chiều ngược lại), không kéo cả
+// object Product đầy đủ. Lọc product.isDelete: false phòng dữ liệu cũ từ trước khi
+// Product.remove() tự gỡ CollectionProduct (xem products.service.ts remove()) — không lọc
+// thì 1 sản phẩm đã xóa mềm từ lâu, lỡ còn sót bản ghi nối cũ, vẫn hiện tên như đang thuộc
+// bộ sưu tập.
 const PRODUCTS_INCLUDE = {
   products: {
     where: { product: { isDelete: false } },
-    include: { product: { select: { id: true, name: true, slug: true } } },
+    include: {
+      product: {
+        select: { id: true, name: true, slug: true, thumbnail: true },
+      },
+    },
   },
 } satisfies Prisma.CollectionInclude;
 
@@ -206,7 +218,27 @@ export class CollectionsService {
     // productId]) và ném P2002 thô nếu không lọc trước.
     const productIds = [...new Set(dto.productIds)];
     if (productIds.length > 0) {
-      await this.assertProductsExist(productIds);
+      // Chỉ chặn sản phẩm chưa mở bán/ngừng kinh doanh cho id MỚI thêm vào — sản phẩm đã
+      // gán từ trước mà sau đó đổi trạng thái (vd tạm ngừng bán) vẫn giữ nguyên khi FE gửi
+      // lại nguyên set cũ, khớp cách assertNoEndedCollections() xử lý ENDED (xem
+      // products.service.ts assignCollections(), chiều ngược lại). 2 query độc lập nhau
+      // (sản phẩm nào tồn tại/status gì vs. collection này đang chứa sản phẩm nào) — chạy
+      // song song thay vì nối tiếp để đỡ 1 round-trip DB.
+      const [statusByProductId, currentProducts] = await Promise.all([
+        this.assertProductsExist(productIds),
+        this.prisma.collectionProduct.findMany({
+          where: { collectionId },
+          select: { productId: true },
+        }),
+      ]);
+      const currentProductIds = new Set(
+        currentProducts.map((cp) => cp.productId),
+      );
+      const newlyAddedProductIds = diffNewlyAdded(
+        productIds,
+        currentProductIds,
+      );
+      this.assertOnlyActiveProducts(statusByProductId, newlyAddedProductIds);
     }
 
     await this.prisma.$transaction([
@@ -234,18 +266,41 @@ export class CollectionsService {
     }
   }
 
-  private async assertProductsExist(productIds: string[]): Promise<void> {
+  // Trả về status theo id để assignProducts() check thêm "đang mở bán" — tách riêng khỏi
+  // check tồn tại vì chỉ cần chặn ACTIVE cho sản phẩm MỚI thêm vào (xem assignProducts()).
+  private async assertProductsExist(
+    productIds: string[],
+  ): Promise<Map<string, ProductStatus>> {
     const uniqueIds = new Set(productIds);
     // isDelete: false — sản phẩm đã xóa mềm coi như không tồn tại, không cho gán (lại)
     // vào bộ sưu tập (khớp assertCategoryExists() ở categories.service.ts). Từ khi
     // Product.remove() tự gỡ khỏi mọi CollectionProduct, kịch bản "gán lại đúng sản phẩm
     // đã xóa vì FE gửi lại nguyên set cũ" không còn xảy ra nữa, nên siết luôn ở đây an toàn.
-    const count = await this.prisma.product.count({
+    const products = await this.prisma.product.findMany({
       where: { id: { in: [...uniqueIds] }, isDelete: false },
+      select: { id: true, status: true },
     });
-    if (count !== uniqueIds.size) {
+    if (products.length !== uniqueIds.size) {
       throw new BadRequestException(
         'Có sản phẩm không tồn tại trong danh sách gán',
+      );
+    }
+    return new Map(products.map((p) => [p.id, p.status]));
+  }
+
+  // Chỉ cho gán sản phẩm ĐANG MỞ BÁN (ACTIVE) vào bộ sưu tập — bộ sưu tập dùng để quảng bá/
+  // trưng bày trên storefront, sản phẩm nháp (DRAFT)/ngừng kinh doanh (INACTIVE) không có
+  // lý do xuất hiện trong đó.
+  private assertOnlyActiveProducts(
+    statusByProductId: Map<string, ProductStatus>,
+    productIdsToCheck: string[],
+  ): void {
+    const hasInactive = productIdsToCheck.some(
+      (id) => statusByProductId.get(id) !== ProductStatus.ACTIVE,
+    );
+    if (hasInactive) {
+      throw new BadRequestException(
+        'Chỉ có thể gán sản phẩm đang mở bán vào bộ sưu tập.',
       );
     }
   }
@@ -306,7 +361,14 @@ function assertStartDateNotInPast(startDate: string): void {
 // update()), mặc định [] cho những chỗ đó.
 function withStatus(
   collection: Collection & {
-    products?: { product: { id: string; name: string; slug: string } }[];
+    products?: {
+      product: {
+        id: string;
+        name: string;
+        slug: string;
+        thumbnail: string | null;
+      };
+    }[];
   },
 ): CollectionWithStatus {
   const today = toDateOnly(new Date());
