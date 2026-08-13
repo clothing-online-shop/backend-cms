@@ -177,7 +177,7 @@ describe('InventoryService — import', () => {
 
     await expect(
       service.import('missing', { quantity: 10 }, 'user-1'),
-    ).rejects.toThrow('Không tìm thấy biến thể sản phẩm');
+    ).rejects.toThrow('Không tìm thấy biến thể sản phẩm.');
   });
 
   it('increments stock and records an IMPORT movement', async () => {
@@ -189,5 +189,22 @@ describe('InventoryService — import', () => {
 
     expect(result).toEqual({ stockQuantity: 15 });
     expect(prisma.$transaction).toHaveBeenCalled();
+
+    // Verify stockMovement.create was called with correct data
+    expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+      data: {
+        productVariantId: 'v1',
+        type: 'IMPORT',
+        quantity: 10,
+        note: 'lô mới',
+        createdById: 'user-1',
+      },
+    });
+
+    // Verify productVariant.update was called with correct arguments
+    expect(prisma.productVariant.update).toHaveBeenCalledWith({
+      where: { id: 'v1' },
+      data: { stockQuantity: { increment: 10 } },
+    });
   });
 });
