@@ -360,6 +360,13 @@ model StockMovement {
   @@map("stock_movements")
 }
 
+model SystemConfig {
+  key   String @id
+  value String
+
+  @@map("system_configs")
+}
+
 // Nhật ký hành động của admin (CUD trên product/category/order/cms...) để truy vết
 // "ai sửa gì, lúc nào" — không dùng để log lỗi hệ thống (đó là việc của Sentry).
 model AuditLog {
