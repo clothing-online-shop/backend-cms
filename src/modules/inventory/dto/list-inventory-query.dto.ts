@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class ListInventoryQueryDto {
@@ -18,9 +18,12 @@ export class ListInventoryQueryDto {
   @IsString()
   brandId?: string;
 
+  // KHÔNG dùng @Type(() => Boolean) cho boolean query param: nó chạy Boolean(value)
+  // trên chuỗi thô, nên 'false'/'0' đều thành true và filter không bao giờ tắt được.
+  // Phải so sánh chuỗi tường minh như dưới đây.
   @ApiPropertyOptional({ default: false })
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   lowStockOnly?: boolean;
 
