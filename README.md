@@ -38,9 +38,12 @@ Backend này **không có global prefix** — route giữ nguyên path gắn tr�
 | `categories` | `GET /categories`, `GET /categories/:slug` | Cần Bearer token, mọi role CMS (ADMIN/WAREHOUSE_STAFF/MARKETING) đều đọc được |
 | | `POST /categories`, `PATCH /categories/reorder`, `PATCH /categories/:id`, `DELETE /categories/:id` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF. Cây danh mục tối đa **3 cấp** (chặn ở cả create/update/reorder). Ảnh danh mục lưu kèm `imagePublicId` — tự xóa ảnh cũ trên Cloudinary khi thay/xóa ảnh hoặc xóa danh mục (best-effort, không chặn request nếu Cloudinary lỗi) |
 | `products` | `GET /products`, `GET /products/:slug` | Cần Bearer token, mọi role CMS đều đọc được |
-| | `POST /products`, `PATCH /products/:id` (đổi `status` để khóa/mở khóa bán), `DELETE /products/:id` (xóa vĩnh viễn khỏi DB), `PATCH /products/:id/variants/:variantId/stock` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
+| | `POST /products`, `PATCH /products/:id` (đổi `status` để khóa/mở khóa bán), `DELETE /products/:id` (xóa vĩnh viễn khỏi DB) | Cần Bearer token role ADMIN/WAREHOUSE_STAFF |
 | `brands` | `GET /brands`, `GET /brands/:id` | Cần Bearer token, mọi role CMS đều đọc được |
 | | `POST /brands`, `PATCH /brands/:id`, `DELETE /brands/:id` | Cần Bearer token role ADMIN |
+| `inventory` | `GET /inventory`, `GET /inventory/history`, `GET /inventory/settings` | Cần Bearer token, mọi role CMS đều đọc được. `GET /inventory` là tồn kho theo từng biến thể (lọc `search`/`categoryId`/`brandId`/`lowStockOnly` + phân trang), `GET /inventory/history` là lịch sử giao dịch kho (lọc `variantId`/`productId`/`type`/`from`/`to` + phân trang), `GET /inventory/settings` trả ngưỡng cảnh báo sắp hết hàng (mặc định 5) |
+| | `POST /inventory/variants/:variantId/import`, `POST /inventory/variants/:variantId/adjust` | Cần Bearer token role ADMIN/WAREHOUSE_STAFF. `import` cộng dồn số lượng nhập vào tồn hiện có; `adjust` xử lý xuất kho (`type=EXPORT`, chặn khi vượt tồn) và điều chỉnh theo số kiểm kê thực tế (`type=ADJUSTMENT`). Mọi thay đổi tồn kho đều ghi kèm 1 bản ghi `StockMovement` trong cùng transaction — thay cho endpoint `PATCH /products/:id/variants/:variantId/stock` đã bỏ |
+| | `PUT /inventory/settings` | Cần Bearer token role ADMIN — đổi ngưỡng tồn kho để coi là "sắp hết hàng" |
 | `upload` | `POST /upload/image`, `DELETE /upload/image/:publicId` | Cần Bearer token, mọi role CMS |
 | `orders` | *(chưa có route)* | Scaffold cho tính năng xem toàn bộ đơn hàng + cập nhật trạng thái, triển khai sau |
 | `cms` | *(chưa có route)* | Scaffold cho banner/blog/trang tĩnh, triển khai sau |

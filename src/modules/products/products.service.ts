@@ -434,6 +434,9 @@ export class ProductsService {
             color: item.color,
             sku,
             price: item.price ?? basePrice,
+            // TODO(known gap): ghi đè tuyệt đối tồn kho, không qua module inventory nên
+            // không sinh StockMovement — sửa field khác của sản phẩm với payload variant
+            // cũ sẽ vô tình reset tồn kho mà không để lại vết trong lịch sử kho.
             stockQuantity: item.stockQuantity ?? 0,
             imageUrl: item.imageUrl,
           },
@@ -455,6 +458,9 @@ export class ProductsService {
             color: item.color,
             sku,
             price: item.price ?? basePrice,
+            // TODO(known gap): tồn kho ban đầu đặt thẳng ở đây, không qua module inventory
+            // nên không có StockMovement mở sổ cho biến thể mới — lịch sử kho sẽ thiếu
+            // điểm bắt đầu, cần thống nhất lại trong lần sửa sau.
             stockQuantity: item.stockQuantity ?? 0,
             imageUrl: item.imageUrl,
           },
