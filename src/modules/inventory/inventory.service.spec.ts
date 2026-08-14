@@ -97,9 +97,11 @@ describe('InventoryService — findAll', () => {
     expect(capturedFindManyWhere?.AND).toBeDefined();
     const andConditions = capturedFindManyWhere?.AND as
       Prisma.ProductVariantWhereInput[] | undefined;
-    const stockFilter = andConditions?.find(
-      (item) => (item as Record<string, unknown>).stockQuantity !== undefined,
-    );
+    const stockFilter = andConditions?.find((item) => {
+      const stockQuantity = (item as Record<string, unknown>).stockQuantity as
+        { lte?: number } | undefined;
+      return stockQuantity?.lte !== undefined;
+    });
     expect(stockFilter).toEqual({ stockQuantity: { lte: 5 } });
     expect(capturedCountWhere).toEqual(capturedFindManyWhere);
   });
