@@ -1,5 +1,6 @@
 import { InventoryService } from './inventory.service';
 import { PrismaService } from '../../config/prisma.service';
+import { Prisma } from '@prisma/client';
 
 function createPrismaMock() {
   return {
@@ -45,7 +46,9 @@ describe('InventoryService — low-stock threshold', () => {
     const result = await service.setLowStockThreshold(8);
 
     expect(result).toBe(8);
-    expect(prisma.systemConfig.upsert).toHaveBeenCalledWith({
+    expect(
+      prisma.systemConfig.upsert as unknown as jest.Mock,
+    ).toHaveBeenCalledWith({
       where: { key: 'lowStockThreshold' },
       create: { key: 'lowStockThreshold', value: '8' },
       update: { value: '8' },
@@ -64,17 +67,17 @@ describe('InventoryService — findAll', () => {
 
   it('marks lowStockOnly filter using the configured threshold', async () => {
     const prisma = createFindAllPrismaMock();
-    let capturedFindManyWhere: any;
-    let capturedCountWhere: any;
+    let capturedFindManyWhere: Prisma.ProductVariantWhereInput | undefined;
+    let capturedCountWhere: Prisma.ProductVariantWhereInput | undefined;
 
     (prisma.productVariant.findMany as jest.Mock).mockImplementation(
-      (args: any) => {
+      (args: { where: Prisma.ProductVariantWhereInput }) => {
         capturedFindManyWhere = args.where;
         return Promise.resolve([]);
       },
     );
     (prisma.productVariant.count as jest.Mock).mockImplementation(
-      (args: any) => {
+      (args: { where: Prisma.ProductVariantWhereInput }) => {
         capturedCountWhere = args.where;
         return Promise.resolve(0);
       },
@@ -89,8 +92,11 @@ describe('InventoryService — findAll', () => {
 
     // Verify lowStockOnly filter is in the AND array with the threshold value
     expect(capturedFindManyWhere?.AND).toBeDefined();
-    const stockFilter = capturedFindManyWhere.AND.find(
-      (item: any) => item.stockQuantity?.lte !== undefined,
+    const andConditions = capturedFindManyWhere?.AND as
+      Prisma.ProductVariantWhereInput[] | undefined;
+    const stockFilter = andConditions?.find(
+      (item) =>
+        (item as Record<string, unknown>).stockQuantity?.lte !== undefined,
     );
     expect(stockFilter).toEqual({ stockQuantity: { lte: 5 } });
     expect(capturedCountWhere).toEqual(capturedFindManyWhere);
@@ -98,10 +104,10 @@ describe('InventoryService — findAll', () => {
 
   it('does not add lowStockOnly filter when not requested', async () => {
     const prisma = createFindAllPrismaMock();
-    let capturedFindManyWhere: any;
+    let capturedFindManyWhere: Prisma.ProductVariantWhereInput | undefined;
 
     (prisma.productVariant.findMany as jest.Mock).mockImplementation(
-      (args: any) => {
+      (args: { where: Prisma.ProductVariantWhereInput }) => {
         capturedFindManyWhere = args.where;
         return Promise.resolve([]);
       },
@@ -117,8 +123,10 @@ describe('InventoryService — findAll', () => {
 
     // Verify lowStockOnly filter is NOT in the AND array
     expect(capturedFindManyWhere?.AND).toBeDefined();
-    const stockFilter = capturedFindManyWhere.AND.find(
-      (item: any) => item.stockQuantity !== undefined,
+    const andConditions = capturedFindManyWhere?.AND as
+      Prisma.ProductVariantWhereInput[] | undefined;
+    const stockFilter = andConditions?.find(
+      (item) => (item as Record<string, unknown>).stockQuantity !== undefined,
     );
     expect(stockFilter).toBeUndefined();
   });
@@ -213,10 +221,12 @@ describe('InventoryService — import', () => {
     );
 
     expect(result).toEqual({ stockQuantity: 15 });
-    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.$transaction as unknown as jest.Mock).toHaveBeenCalled();
 
     // Verify stockMovement.create was called with correct data
-    expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+    expect(
+      prisma.stockMovement.create as unknown as jest.Mock,
+    ).toHaveBeenCalledWith({
       data: {
         productVariantId: 'v1',
         type: 'IMPORT',
@@ -227,7 +237,9 @@ describe('InventoryService — import', () => {
     });
 
     // Verify productVariant.update was called with correct arguments
-    expect(prisma.productVariant.update).toHaveBeenCalledWith({
+    expect(
+      prisma.productVariant.update as unknown as jest.Mock,
+    ).toHaveBeenCalledWith({
       where: { id: 'v1' },
       data: { stockQuantity: { increment: 10 } },
     });
@@ -293,7 +305,9 @@ describe('InventoryService — adjust', () => {
     expect(result).toEqual({ stockQuantity: 6 });
 
     // Verify stockMovement.create was called with correct data
-    expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+    expect(
+      prisma.stockMovement.create as unknown as jest.Mock,
+    ).toHaveBeenCalledWith({
       data: {
         productVariantId: 'v1',
         type: 'EXPORT',
@@ -304,7 +318,9 @@ describe('InventoryService — adjust', () => {
     });
 
     // Verify productVariant.update was called with correct arguments
-    expect(prisma.productVariant.update).toHaveBeenCalledWith({
+    expect(
+      prisma.productVariant.update as unknown as jest.Mock,
+    ).toHaveBeenCalledWith({
       where: { id: 'v1' },
       data: { stockQuantity: { increment: -4 } },
     });
@@ -346,7 +362,9 @@ describe('InventoryService — adjust', () => {
     expect(result).toEqual({ stockQuantity: 38 });
 
     // Verify stockMovement.create was called with correct data
-    expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+    expect(
+      prisma.stockMovement.create as unknown as jest.Mock,
+    ).toHaveBeenCalledWith({
       data: {
         productVariantId: 'v1',
         type: 'ADJUSTMENT',
@@ -357,7 +375,9 @@ describe('InventoryService — adjust', () => {
     });
 
     // Verify productVariant.update was called with correct arguments
-    expect(prisma.productVariant.update).toHaveBeenCalledWith({
+    expect(
+      prisma.productVariant.update as unknown as jest.Mock,
+    ).toHaveBeenCalledWith({
       where: { id: 'v1' },
       data: { stockQuantity: { increment: -4 } },
     });
