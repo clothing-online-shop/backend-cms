@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, StockMovementType } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
+import { ErrorCode } from '../../common/constants/error-codes';
 import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
 import { ImportStockDto } from './dto/import-stock.dto';
 import { AdjustStockDto, AdjustStockType } from './dto/adjust-stock.dto';
@@ -53,6 +54,7 @@ export class InventoryService {
 
     const where: Prisma.ProductVariantWhereInput = {
       AND: [
+        { product: { isDelete: false } },
         query.categoryId ? { product: { categoryId: query.categoryId } } : {},
         query.brandId ? { product: { brandId: query.brandId } } : {},
         query.lowStockOnly ? { stockQuantity: { lte: threshold } } : {},
@@ -167,17 +169,20 @@ export class InventoryService {
         delta = -dto.quantity!;
         movementType = StockMovementType.EXPORT;
         if (variant.stockQuantity + delta < 0) {
-          throw new BadRequestException(
-            'Số lượng xuất vượt quá tồn kho hiện có.',
-          );
+          throw new BadRequestException({
+            message: 'Số lượng xuất vượt quá tồn kho hiện có.',
+            code: ErrorCode.INVENTORY_EXPORT_EXCEEDS_STOCK,
+          });
         }
       } else {
         delta = dto.actualQuantity! - variant.stockQuantity;
         movementType = StockMovementType.ADJUSTMENT;
         if (delta === 0) {
-          throw new BadRequestException(
-            'Số tồn thực tế trùng với hệ thống, không có gì để điều chỉnh.',
-          );
+          throw new BadRequestException({
+            message:
+              'Số tồn thực tế trùng với hệ thống, không có gì để điều chỉnh.',
+            code: ErrorCode.INVENTORY_ADJUSTMENT_NO_CHANGE,
+          });
         }
       }
 
