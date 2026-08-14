@@ -135,6 +135,67 @@ describe('InventoryService — findAll', () => {
     expect(stockFilter).toBeUndefined();
   });
 
+  it('adds categoryId and brandId filters to the where clause', async () => {
+    const { prisma, transaction, findMany, count } = createFindAllPrismaMock();
+    let capturedFindManyWhere: Prisma.ProductVariantWhereInput | undefined;
+
+    findMany.mockImplementation(
+      (args: { where: Prisma.ProductVariantWhereInput }) => {
+        capturedFindManyWhere = args.where;
+        return Promise.resolve([]);
+      },
+    );
+    count.mockResolvedValue(0);
+    transaction.mockImplementation((queries: Promise<unknown>[]) => {
+      return Promise.all(queries);
+    });
+
+    const service = new InventoryService(prisma);
+
+    await service.findAll({
+      categoryId: 'cat-1',
+      brandId: 'brand-1',
+      page: 1,
+      limit: 20,
+    });
+
+    const andConditions = capturedFindManyWhere?.AND as
+      Prisma.ProductVariantWhereInput[] | undefined;
+    expect(andConditions).toContainEqual({
+      product: { categoryId: 'cat-1' },
+    });
+    expect(andConditions).toContainEqual({ product: { brandId: 'brand-1' } });
+  });
+
+  it('builds an OR search filter across sku and product name', async () => {
+    const { prisma, transaction, findMany, count } = createFindAllPrismaMock();
+    let capturedFindManyWhere: Prisma.ProductVariantWhereInput | undefined;
+
+    findMany.mockImplementation(
+      (args: { where: Prisma.ProductVariantWhereInput }) => {
+        capturedFindManyWhere = args.where;
+        return Promise.resolve([]);
+      },
+    );
+    count.mockResolvedValue(0);
+    transaction.mockImplementation((queries: Promise<unknown>[]) => {
+      return Promise.all(queries);
+    });
+
+    const service = new InventoryService(prisma);
+
+    await service.findAll({ search: 'áo', page: 1, limit: 20 });
+
+    const andConditions = capturedFindManyWhere?.AND as
+      Prisma.ProductVariantWhereInput[] | undefined;
+    expect(andConditions).toContainEqual({
+      OR: [
+        { sku: { contains: 'áo', mode: 'insensitive' } },
+        { product: { name: { contains: 'áo', mode: 'insensitive' } } },
+      ],
+    });
+  });
+
   it('maps variant + product fields into the response shape', async () => {
     const { prisma, transaction } = createFindAllPrismaMock();
     const variant = {
@@ -178,31 +239,33 @@ describe('InventoryService — findAll', () => {
   });
 });
 
-describe('InventoryService — import', () => {
-  function createImportPrismaMock(
-    variant: { id: string; stockQuantity: number } | null,
-  ) {
-    const findUnique = jest.fn().mockResolvedValue(variant);
-    const update = jest.fn();
-    const create = jest.fn();
-    const transaction = jest
-      .fn()
-      .mockResolvedValue([
-        {},
-        variant
-          ? { ...variant, stockQuantity: variant.stockQuantity }
-          : undefined,
-      ]);
-    const prisma = {
-      productVariant: { findUnique, update },
-      stockMovement: { create },
-      $transaction: transaction,
-    } as unknown as PrismaService;
-    return { prisma, update, create, transaction };
-  }
+// import/adjust chạy dạng interactive transaction: $transaction nhận 1 callback và
+// mock phải gọi lại callback đó với 1 tx giả để test đúng luồng đọc/ghi bên trong.
+function createTxPrismaMock(
+  variant: { id: string; stockQuantity: number } | null,
+) {
+  const findUnique = jest.fn().mockResolvedValue(variant);
+  const findUniqueOrThrow = jest.fn().mockResolvedValue(variant);
+  const update = jest.fn();
+  const create = jest.fn();
+  const tx = {
+    productVariant: { findUnique, findUniqueOrThrow, update },
+    stockMovement: { create },
+  };
+  const transaction = jest
+    .fn()
+    .mockImplementation((callback: (tx: unknown) => unknown) => callback(tx));
+  const prisma = {
+    productVariant: { findUnique, findUniqueOrThrow, update },
+    stockMovement: { create },
+    $transaction: transaction,
+  } as unknown as PrismaService;
+  return { prisma, findUnique, findUniqueOrThrow, update, create, transaction };
+}
 
+describe('InventoryService — import', () => {
   it('throws NotFoundException when the variant does not exist', async () => {
-    const { prisma } = createImportPrismaMock(null);
+    const { prisma } = createTxPrismaMock(null);
     const service = new InventoryService(prisma);
 
     await expect(
@@ -211,11 +274,12 @@ describe('InventoryService — import', () => {
   });
 
   it('increments stock and records an IMPORT movement', async () => {
-    const { prisma, update, create, transaction } = createImportPrismaMock({
-      id: 'v1',
-      stockQuantity: 5,
-    });
-    transaction.mockResolvedValue([{}, { stockQuantity: 15 }]);
+    const { prisma, update, create, transaction, findUniqueOrThrow } =
+      createTxPrismaMock({
+        id: 'v1',
+        stockQuantity: 5,
+      });
+    findUniqueOrThrow.mockResolvedValue({ id: 'v1', stockQuantity: 15 });
     const service = new InventoryService(prisma);
 
     const result = await service.import(
@@ -247,23 +311,8 @@ describe('InventoryService — import', () => {
 });
 
 describe('InventoryService — adjust', () => {
-  function createAdjustPrismaMock(
-    variant: { id: string; stockQuantity: number } | null,
-  ) {
-    const findUnique = jest.fn().mockResolvedValue(variant);
-    const update = jest.fn();
-    const create = jest.fn();
-    const transaction = jest.fn();
-    const prisma = {
-      productVariant: { findUnique, update },
-      stockMovement: { create },
-      $transaction: transaction,
-    } as unknown as PrismaService;
-    return { prisma, update, create, transaction };
-  }
-
   it('throws NotFoundException when the variant does not exist', async () => {
-    const { prisma } = createAdjustPrismaMock(null);
+    const { prisma } = createTxPrismaMock(null);
     const service = new InventoryService(prisma);
 
     await expect(
@@ -276,7 +325,7 @@ describe('InventoryService — adjust', () => {
   });
 
   it('rejects EXPORT that would make stock negative', async () => {
-    const { prisma } = createAdjustPrismaMock({ id: 'v1', stockQuantity: 3 });
+    const { prisma } = createTxPrismaMock({ id: 'v1', stockQuantity: 3 });
     const service = new InventoryService(prisma);
 
     await expect(
@@ -289,11 +338,11 @@ describe('InventoryService — adjust', () => {
   });
 
   it('applies EXPORT and records a negative movement', async () => {
-    const { prisma, update, create, transaction } = createAdjustPrismaMock({
+    const { prisma, update, create, findUniqueOrThrow } = createTxPrismaMock({
       id: 'v1',
       stockQuantity: 10,
     });
-    transaction.mockResolvedValue([{}, { stockQuantity: 6 }]);
+    findUniqueOrThrow.mockResolvedValue({ id: 'v1', stockQuantity: 6 });
     const service = new InventoryService(prisma);
 
     const result = await service.adjust(
@@ -323,7 +372,7 @@ describe('InventoryService — adjust', () => {
   });
 
   it('rejects ADJUSTMENT with no real change', async () => {
-    const { prisma } = createAdjustPrismaMock({ id: 'v1', stockQuantity: 8 });
+    const { prisma } = createTxPrismaMock({ id: 'v1', stockQuantity: 8 });
     const service = new InventoryService(prisma);
 
     await expect(
@@ -338,11 +387,11 @@ describe('InventoryService — adjust', () => {
   });
 
   it('applies ADJUSTMENT and records the signed delta', async () => {
-    const { prisma, update, create, transaction } = createAdjustPrismaMock({
+    const { prisma, update, create, findUniqueOrThrow } = createTxPrismaMock({
       id: 'v1',
       stockQuantity: 42,
     });
-    transaction.mockResolvedValue([{}, { stockQuantity: 38 }]);
+    findUniqueOrThrow.mockResolvedValue({ id: 'v1', stockQuantity: 38 });
     const service = new InventoryService(prisma);
 
     const result = await service.adjust(
@@ -432,6 +481,79 @@ describe('InventoryService — getHistory', () => {
       limit: 20,
       totalPages: 1,
     });
+  });
+
+  it('adds every filter to the where clause passed to findMany and count', async () => {
+    const { prisma, transaction, findMany, count } = createHistoryPrismaMock();
+    let capturedFindManyWhere: Prisma.StockMovementWhereInput | undefined;
+    let capturedCountWhere: Prisma.StockMovementWhereInput | undefined;
+
+    findMany.mockImplementation(
+      (args: { where: Prisma.StockMovementWhereInput }) => {
+        capturedFindManyWhere = args.where;
+        return Promise.resolve([]);
+      },
+    );
+    count.mockImplementation(
+      (args: { where: Prisma.StockMovementWhereInput }) => {
+        capturedCountWhere = args.where;
+        return Promise.resolve(0);
+      },
+    );
+    transaction.mockImplementation((queries: Promise<unknown>[]) => {
+      return Promise.all(queries);
+    });
+
+    const service = new InventoryService(prisma);
+
+    await service.getHistory({
+      variantId: 'v1',
+      productId: 'p1',
+      type: 'IMPORT',
+      from: '2026-08-01T00:00:00.000Z',
+      to: '2026-08-31T00:00:00.000Z',
+      page: 1,
+      limit: 20,
+    });
+
+    const andConditions = capturedFindManyWhere?.AND as
+      Prisma.StockMovementWhereInput[] | undefined;
+    expect(andConditions).toContainEqual({ productVariantId: 'v1' });
+    expect(andConditions).toContainEqual({
+      productVariant: { productId: 'p1' },
+    });
+    expect(andConditions).toContainEqual({ type: 'IMPORT' });
+    expect(andConditions).toContainEqual({
+      createdAt: { gte: new Date('2026-08-01T00:00:00.000Z') },
+    });
+    expect(andConditions).toContainEqual({
+      createdAt: { lte: new Date('2026-08-31T00:00:00.000Z') },
+    });
+    expect(capturedCountWhere).toEqual(capturedFindManyWhere);
+  });
+
+  it('leaves the filters out of the where clause when no filter is given', async () => {
+    const { prisma, transaction, findMany, count } = createHistoryPrismaMock();
+    let capturedFindManyWhere: Prisma.StockMovementWhereInput | undefined;
+
+    findMany.mockImplementation(
+      (args: { where: Prisma.StockMovementWhereInput }) => {
+        capturedFindManyWhere = args.where;
+        return Promise.resolve([]);
+      },
+    );
+    count.mockResolvedValue(0);
+    transaction.mockImplementation((queries: Promise<unknown>[]) => {
+      return Promise.all(queries);
+    });
+
+    const service = new InventoryService(prisma);
+
+    await service.getHistory({ page: 1, limit: 20 });
+
+    const andConditions = capturedFindManyWhere?.AND as
+      Prisma.StockMovementWhereInput[] | undefined;
+    expect(andConditions).toEqual([{}, {}, {}, {}, {}]);
   });
 
   it('falls back to "Hệ thống" when createdBy is null', async () => {
