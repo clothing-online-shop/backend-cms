@@ -97,79 +97,103 @@ export class InventoryService {
     };
   }
 
-  async import(variantId: string, dto: ImportStockDto, userId: string) {
-    const variant = await this.prisma.productVariant.findUnique({
-      where: { id: variantId },
+  // Ghi 1 movement + cộng dồn tồn kho trong CÙNG 1 transaction. Tách riêng vì
+  // import/adjust chỉ khác nhau ở cách tính delta, phần ghi là y hệt nhau.
+  private async applyMovement(
+    tx: Prisma.TransactionClient,
+    params: {
+      variantId: string;
+      type: StockMovementType;
+      delta: number;
+      note?: string | null;
+      createdById: string;
+    },
+  ): Promise<void> {
+    await tx.stockMovement.create({
+      data: {
+        productVariantId: params.variantId,
+        type: params.type,
+        quantity: params.delta,
+        note: params.note,
+        createdById: params.createdById,
+      },
     });
-    if (!variant) {
-      throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
-    }
+    await tx.productVariant.update({
+      where: { id: params.variantId },
+      data: { stockQuantity: { increment: params.delta } },
+    });
+  }
 
-    const [, updated] = await this.prisma.$transaction([
-      this.prisma.stockMovement.create({
-        data: {
-          productVariantId: variantId,
-          type: StockMovementType.IMPORT,
-          quantity: dto.quantity,
-          note: dto.note,
-          createdById: userId,
-        },
-      }),
-      this.prisma.productVariant.update({
+  // Đọc + validate + ghi phải nằm trong cùng transaction: nếu đọc tồn kho ngoài
+  // transaction, 2 request đồng thời có thể cùng thấy 1 giá trị cũ và cùng ghi đè,
+  // làm tồn kho âm hoặc điều chỉnh không về đúng số đã kiểm kê.
+  async import(variantId: string, dto: ImportStockDto, userId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const variant = await tx.productVariant.findUnique({
         where: { id: variantId },
-        data: { stockQuantity: { increment: dto.quantity } },
-      }),
-    ]);
+      });
+      if (!variant) {
+        throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
+      }
 
-    return { stockQuantity: updated.stockQuantity };
+      await this.applyMovement(tx, {
+        variantId,
+        type: StockMovementType.IMPORT,
+        delta: dto.quantity,
+        note: dto.note,
+        createdById: userId,
+      });
+
+      const updated = await tx.productVariant.findUniqueOrThrow({
+        where: { id: variantId },
+      });
+      return { stockQuantity: updated.stockQuantity };
+    });
   }
 
   async adjust(variantId: string, dto: AdjustStockDto, userId: string) {
-    const variant = await this.prisma.productVariant.findUnique({
-      where: { id: variantId },
-    });
-    if (!variant) {
-      throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
-    }
-
-    let delta: number;
-    let movementType: StockMovementType;
-
-    if (dto.type === AdjustStockType.EXPORT) {
-      delta = -dto.quantity!;
-      movementType = StockMovementType.EXPORT;
-      if (variant.stockQuantity + delta < 0) {
-        throw new BadRequestException(
-          'Số lượng xuất vượt quá tồn kho hiện có.',
-        );
-      }
-    } else {
-      delta = dto.actualQuantity! - variant.stockQuantity;
-      movementType = StockMovementType.ADJUSTMENT;
-      if (delta === 0) {
-        throw new BadRequestException(
-          'Số tồn thực tế trùng với hệ thống, không có gì để điều chỉnh.',
-        );
-      }
-    }
-
-    const [, updated] = await this.prisma.$transaction([
-      this.prisma.stockMovement.create({
-        data: {
-          productVariantId: variantId,
-          type: movementType,
-          quantity: delta,
-          note: dto.reason,
-          createdById: userId,
-        },
-      }),
-      this.prisma.productVariant.update({
+    return this.prisma.$transaction(async (tx) => {
+      const variant = await tx.productVariant.findUnique({
         where: { id: variantId },
-        data: { stockQuantity: { increment: delta } },
-      }),
-    ]);
+      });
+      if (!variant) {
+        throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
+      }
 
-    return { stockQuantity: updated.stockQuantity };
+      let delta: number;
+      let movementType: StockMovementType;
+
+      if (dto.type === AdjustStockType.EXPORT) {
+        delta = -dto.quantity!;
+        movementType = StockMovementType.EXPORT;
+        if (variant.stockQuantity + delta < 0) {
+          throw new BadRequestException(
+            'Số lượng xuất vượt quá tồn kho hiện có.',
+          );
+        }
+      } else {
+        delta = dto.actualQuantity! - variant.stockQuantity;
+        movementType = StockMovementType.ADJUSTMENT;
+        if (delta === 0) {
+          throw new BadRequestException(
+            'Số tồn thực tế trùng với hệ thống, không có gì để điều chỉnh.',
+          );
+        }
+      }
+
+      await this.applyMovement(tx, {
+        variantId,
+        type: movementType,
+        delta,
+        note: dto.reason,
+        createdById: userId,
+      });
+
+      const updated = await tx.productVariant.findUniqueOrThrow({
+        where: { id: variantId },
+      });
+      return { stockQuantity: updated.stockQuantity };
+    });
   }
 
   async getHistory(query: ListStockHistoryQueryDto) {
