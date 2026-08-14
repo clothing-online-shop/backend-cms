@@ -359,7 +359,10 @@ model StockMovement {
   createdById      String? // null nếu do hệ thống tự trừ kho (ví dụ khi tạo đơn), có giá trị nếu admin thao tác tay
   createdAt        DateTime          @default(now())
 
-  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  // Restrict (không phải Cascade) — biến thể đã có lịch sử kho không được xoá cứng, tránh
+  // mất sổ sách kiểm toán âm thầm khi admin xoá 1 dòng size/màu khỏi sản phẩm (xem
+  // products.service.ts syncVariants()).
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
   createdBy      User?          @relation(fields: [createdById], references: [id])
 
   @@index([productVariantId])

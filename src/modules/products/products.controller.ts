@@ -21,6 +21,8 @@ import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { ADMIN_PANEL_ROLES } from '../../common/constants/admin-panel-roles';
 import { ProductStatus } from './product-status.enum';
 import { ProductsService } from './products.service';
@@ -97,15 +99,22 @@ export class ProductsController {
   @Post()
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Tạo sản phẩm mới kèm variants (Admin)' })
-  create(@Body() dto: CreateProductDto) {
-    return this.productsService.create(dto);
+  create(
+    @Body() dto: CreateProductDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.productsService.create(dto, user.id);
   }
 
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Cập nhật sản phẩm + đồng bộ lại variants (Admin)' })
-  update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
-    return this.productsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.productsService.update(id, dto, user.id);
   }
 
   @Delete(':id')

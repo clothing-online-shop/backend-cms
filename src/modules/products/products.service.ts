@@ -4,7 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Product, ProductVariant } from '@prisma/client';
+import {
+  Prisma,
+  Product,
+  ProductVariant,
+  StockMovementType,
+} from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug, generateSku } from '../../common/utils/slug.util';
 import { diffNewlyAdded } from '../../common/utils/diff.util';
@@ -185,6 +190,7 @@ export class ProductsService {
 
   async create(
     dto: CreateProductDto,
+    userId: string,
   ): Promise<Product & { variants: ProductVariant[] }> {
     assertNoDuplicateVariants(dto.variants);
     await this.assertCategoryExists(dto.categoryId);
@@ -230,40 +236,62 @@ export class ProductsService {
       });
     }
 
-    return this.prisma.product.create({
-      data: {
-        name: dto.name,
-        slug,
-        description: dto.description,
-        material: dto.material,
-        careInstructions: dto.careInstructions,
-        brandId: dto.brandId,
-        categoryId: dto.categoryId,
-        basePrice: dto.basePrice,
-        salePrice: dto.salePrice,
-        status: dto.status ?? ProductStatus.DRAFT,
-        thumbnail: dto.thumbnail,
-        thumbnailPublicId: dto.thumbnailPublicId,
-        images: dto.images ?? [],
-        imagePublicIds: dto.imagePublicIds ?? [],
-        metaTitle: dto.metaTitle,
-        metaDescription: dto.metaDescription,
-        variants: { create: variantsData },
-        collections: collectionIds?.length
-          ? {
-              create: collectionIds.map((collectionId) => ({
-                collectionId,
-              })),
-            }
-          : undefined,
-      },
-      include: { variants: true },
+    return this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.create({
+        data: {
+          name: dto.name,
+          slug,
+          description: dto.description,
+          material: dto.material,
+          careInstructions: dto.careInstructions,
+          brandId: dto.brandId,
+          categoryId: dto.categoryId,
+          basePrice: dto.basePrice,
+          salePrice: dto.salePrice,
+          status: dto.status ?? ProductStatus.DRAFT,
+          thumbnail: dto.thumbnail,
+          thumbnailPublicId: dto.thumbnailPublicId,
+          images: dto.images ?? [],
+          imagePublicIds: dto.imagePublicIds ?? [],
+          metaTitle: dto.metaTitle,
+          metaDescription: dto.metaDescription,
+          variants: { create: variantsData },
+          collections: collectionIds?.length
+            ? {
+                create: collectionIds.map((collectionId) => ({
+                  collectionId,
+                })),
+              }
+            : undefined,
+        },
+        include: { variants: true },
+      });
+
+      // Mở sổ kho cho tồn kho ban đầu ngay lúc tạo — nếu không, biến thể có tồn > 0 mà
+      // lịch sử kho (StockMovement) lại trống trơn, không có điểm bắt đầu để đối chiếu.
+      const openingStockVariants = product.variants.filter(
+        (v) => v.stockQuantity > 0,
+      );
+      if (openingStockVariants.length > 0) {
+        await tx.stockMovement.createMany({
+          data: openingStockVariants.map((v) => ({
+            productVariantId: v.id,
+            type: StockMovementType.IMPORT,
+            quantity: v.stockQuantity,
+            note: 'Tồn kho khởi tạo khi tạo sản phẩm',
+            createdById: userId,
+          })),
+        });
+      }
+
+      return product;
     });
   }
 
   async update(
     id: string,
     dto: UpdateProductDto,
+    userId: string,
   ): Promise<Product & { variants: ProductVariant[] }> {
     const existing = await this.prisma.product.findUnique({
       where: { id },
@@ -347,6 +375,7 @@ export class ProductsService {
           basePrice,
           existing.variants,
           dto.variants,
+          userId,
         );
       }
     });
@@ -479,6 +508,7 @@ export class ProductsService {
     basePrice: number,
     existingVariants: ProductVariant[],
     incoming: UpdateProductVariantDto[],
+    userId: string,
   ): Promise<void> {
     const existingIds = new Set(existingVariants.map((v) => v.id));
     const keepIds = new Set<string>();
@@ -503,6 +533,10 @@ export class ProductsService {
             )
           : current.sku;
         usedSkus.add(sku);
+        // Tồn kho biến thể ĐÃ CÓ không được sửa ở đây, kể cả khi client gửi kèm
+        // stockQuantity — mọi thay đổi tồn kho phải đi qua InventoryService (nhập/xuất/
+        // điều chỉnh) để luôn sinh 1 dòng StockMovement tương ứng. Sửa sản phẩm chỉ được
+        // đổi thông tin mô tả biến thể (size/màu/SKU/giá/ảnh), không được ghi đè số tồn.
         await tx.productVariant.update({
           where: { id: item.id },
           data: {
@@ -510,10 +544,6 @@ export class ProductsService {
             color: item.color,
             sku,
             price: item.price ?? basePrice,
-            // TODO(known gap): ghi đè tuyệt đối tồn kho, không qua module inventory nên
-            // không sinh StockMovement — sửa field khác của sản phẩm với payload variant
-            // cũ sẽ vô tình reset tồn kho mà không để lại vết trong lịch sử kho.
-            stockQuantity: item.stockQuantity ?? 0,
             imageUrl: item.imageUrl,
           },
         });
@@ -527,20 +557,31 @@ export class ProductsService {
           usedSkus,
         );
         usedSkus.add(sku);
-        await tx.productVariant.create({
+        const created = await tx.productVariant.create({
           data: {
             productId,
             size: item.size,
             color: item.color,
             sku,
             price: item.price ?? basePrice,
-            // TODO(known gap): tồn kho ban đầu đặt thẳng ở đây, không qua module inventory
-            // nên không có StockMovement mở sổ cho biến thể mới — lịch sử kho sẽ thiếu
-            // điểm bắt đầu, cần thống nhất lại trong lần sửa sau.
             stockQuantity: item.stockQuantity ?? 0,
             imageUrl: item.imageUrl,
           },
         });
+
+        // Biến thể mới thêm giữa lúc sửa sản phẩm — cùng lý do với create(): tồn kho ban
+        // đầu (nếu có) phải mở sổ ngay, không để lịch sử kho thiếu điểm bắt đầu.
+        if (created.stockQuantity > 0) {
+          await tx.stockMovement.create({
+            data: {
+              productVariantId: created.id,
+              type: StockMovementType.IMPORT,
+              quantity: created.stockQuantity,
+              note: 'Tồn kho khởi tạo',
+              createdById: userId,
+            },
+          });
+        }
       }
     }
 
@@ -553,8 +594,12 @@ export class ProductsService {
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2003'
         ) {
+          // P2003 giờ có thể đến từ 2 ràng buộc: đã nằm trong giỏ hàng/đơn hàng, hoặc đã
+          // có lịch sử nhập/xuất/điều chỉnh kho (StockMovement giờ Restrict, không còn
+          // Cascade — xem schema.prisma) — không phân biệt cụ thể ràng buộc nào để tránh
+          // phải truy vấn thêm, gộp chung 1 thông báo bao quát cả 2 trường hợp.
           throw new ConflictException(
-            `Không thể xóa biến thể ${variant.sku} vì đã được dùng trong đơn hàng/giỏ hàng`,
+            `Không thể xóa biến thể ${variant.sku} vì đã phát sinh giao dịch liên quan (đơn hàng/giỏ hàng hoặc lịch sử nhập/xuất kho).`,
           );
         }
         throw err;
