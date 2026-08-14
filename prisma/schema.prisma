@@ -63,15 +63,16 @@ enum TransactionStatus {
 }
 
 model User {
-  id        String     @id @default(cuid())
-  email     String     @unique
-  password  String
-  phone     String?
-  fullName  String
-  role      UserRole   @default(CUSTOMER)
-  status    UserStatus @default(ACTIVE)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id              String     @id @default(cuid())
+  email           String     @unique
+  password        String
+  phone           String?    @unique
+  fullName        String
+  role            UserRole   @default(CUSTOMER)
+  status          UserStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   addresses      Address[]
   carts          Cart[]
