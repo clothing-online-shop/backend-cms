@@ -53,7 +53,6 @@ export class InventoryService {
 
     const where: Prisma.ProductVariantWhereInput = {
       AND: [
-        { product: { isDelete: false } },
         query.categoryId ? { product: { categoryId: query.categoryId } } : {},
         query.brandId ? { product: { brandId: query.brandId } } : {},
         query.lowStockOnly ? { stockQuantity: { lte: threshold } } : {},

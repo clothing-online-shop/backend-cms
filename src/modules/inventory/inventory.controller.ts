@@ -14,7 +14,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { ADMIN_PANEL_ROLES } from '../../common/constants/admin-panel-roles';
 import { InventoryService } from './inventory.service';
 import { UpdateInventorySettingsDto } from './dto/update-inventory-settings.dto';
