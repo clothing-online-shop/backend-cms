@@ -3,18 +3,18 @@ import { PrismaService } from '../../config/prisma.service';
 import { Prisma } from '@prisma/client';
 
 function createPrismaMock() {
-  return {
-    systemConfig: {
-      findUnique: jest.fn(),
-      upsert: jest.fn(),
-    },
+  const findUnique = jest.fn();
+  const upsert = jest.fn();
+  const prisma = {
+    systemConfig: { findUnique, upsert },
   } as unknown as PrismaService;
+  return { prisma, findUnique, upsert };
 }
 
 describe('InventoryService — low-stock threshold', () => {
   it('returns the default threshold when no config row exists', async () => {
-    const prisma = createPrismaMock();
-    (prisma.systemConfig.findUnique as jest.Mock).mockResolvedValue(null);
+    const { prisma, findUnique } = createPrismaMock();
+    findUnique.mockResolvedValue(null);
     const service = new InventoryService(prisma);
 
     const threshold = await service.getLowStockThreshold();
@@ -23,8 +23,8 @@ describe('InventoryService — low-stock threshold', () => {
   });
 
   it('returns the stored threshold when a config row exists', async () => {
-    const prisma = createPrismaMock();
-    (prisma.systemConfig.findUnique as jest.Mock).mockResolvedValue({
+    const { prisma, findUnique } = createPrismaMock();
+    findUnique.mockResolvedValue({
       key: 'lowStockThreshold',
       value: '10',
     });
@@ -36,8 +36,8 @@ describe('InventoryService — low-stock threshold', () => {
   });
 
   it('upserts the threshold on set', async () => {
-    const prisma = createPrismaMock();
-    (prisma.systemConfig.upsert as jest.Mock).mockResolvedValue({
+    const { prisma, upsert } = createPrismaMock();
+    upsert.mockResolvedValue({
       key: 'lowStockThreshold',
       value: '8',
     });
@@ -46,9 +46,7 @@ describe('InventoryService — low-stock threshold', () => {
     const result = await service.setLowStockThreshold(8);
 
     expect(result).toBe(8);
-    expect(
-      prisma.systemConfig.upsert as unknown as jest.Mock,
-    ).toHaveBeenCalledWith({
+    expect(upsert).toHaveBeenCalledWith({
       where: { key: 'lowStockThreshold' },
       create: { key: 'lowStockThreshold', value: '8' },
       update: { value: '8' },
@@ -58,31 +56,36 @@ describe('InventoryService — low-stock threshold', () => {
 
 describe('InventoryService — findAll', () => {
   function createFindAllPrismaMock() {
-    return {
-      systemConfig: { findUnique: jest.fn().mockResolvedValue(null) },
-      $transaction: jest.fn(),
-      productVariant: { findMany: jest.fn(), count: jest.fn() },
+    const findUnique = jest.fn().mockResolvedValue(null);
+    const transaction = jest.fn();
+    const findMany = jest.fn();
+    const count = jest.fn();
+    const prisma = {
+      systemConfig: { findUnique },
+      $transaction: transaction,
+      productVariant: { findMany, count },
     } as unknown as PrismaService;
+    return { prisma, transaction, findMany, count };
   }
 
   it('marks lowStockOnly filter using the configured threshold', async () => {
-    const prisma = createFindAllPrismaMock();
+    const { prisma, transaction, findMany, count } = createFindAllPrismaMock();
     let capturedFindManyWhere: Prisma.ProductVariantWhereInput | undefined;
     let capturedCountWhere: Prisma.ProductVariantWhereInput | undefined;
 
-    (prisma.productVariant.findMany as jest.Mock).mockImplementation(
+    findMany.mockImplementation(
       (args: { where: Prisma.ProductVariantWhereInput }) => {
         capturedFindManyWhere = args.where;
         return Promise.resolve([]);
       },
     );
-    (prisma.productVariant.count as jest.Mock).mockImplementation(
+    count.mockImplementation(
       (args: { where: Prisma.ProductVariantWhereInput }) => {
         capturedCountWhere = args.where;
         return Promise.resolve(0);
       },
     );
-    (prisma.$transaction as jest.Mock).mockImplementation((queries: any[]) => {
+    transaction.mockImplementation((queries: Promise<unknown>[]) => {
       return Promise.all(queries);
     });
 
@@ -95,25 +98,24 @@ describe('InventoryService — findAll', () => {
     const andConditions = capturedFindManyWhere?.AND as
       Prisma.ProductVariantWhereInput[] | undefined;
     const stockFilter = andConditions?.find(
-      (item) =>
-        (item as Record<string, unknown>).stockQuantity?.lte !== undefined,
+      (item) => (item as Record<string, unknown>).stockQuantity !== undefined,
     );
     expect(stockFilter).toEqual({ stockQuantity: { lte: 5 } });
     expect(capturedCountWhere).toEqual(capturedFindManyWhere);
   });
 
   it('does not add lowStockOnly filter when not requested', async () => {
-    const prisma = createFindAllPrismaMock();
+    const { prisma, transaction, findMany, count } = createFindAllPrismaMock();
     let capturedFindManyWhere: Prisma.ProductVariantWhereInput | undefined;
 
-    (prisma.productVariant.findMany as jest.Mock).mockImplementation(
+    findMany.mockImplementation(
       (args: { where: Prisma.ProductVariantWhereInput }) => {
         capturedFindManyWhere = args.where;
         return Promise.resolve([]);
       },
     );
-    (prisma.productVariant.count as jest.Mock).mockResolvedValue(0);
-    (prisma.$transaction as jest.Mock).mockImplementation((queries: any[]) => {
+    count.mockResolvedValue(0);
+    transaction.mockImplementation((queries: Promise<unknown>[]) => {
       return Promise.all(queries);
     });
 
@@ -132,7 +134,7 @@ describe('InventoryService — findAll', () => {
   });
 
   it('maps variant + product fields into the response shape', async () => {
-    const prisma = createFindAllPrismaMock();
+    const { prisma, transaction } = createFindAllPrismaMock();
     const variant = {
       id: 'v1',
       sku: 'SKU-1',
@@ -146,7 +148,7 @@ describe('InventoryService — findAll', () => {
         thumbnail: null,
       },
     };
-    (prisma.$transaction as jest.Mock).mockResolvedValue([[variant], 1]);
+    transaction.mockResolvedValue([[variant], 1]);
     const service = new InventoryService(prisma);
 
     const result = await service.findAll({ page: 1, limit: 20 });
@@ -178,27 +180,27 @@ describe('InventoryService — import', () => {
   function createImportPrismaMock(
     variant: { id: string; stockQuantity: number } | null,
   ) {
-    return {
-      productVariant: {
-        findUnique: jest.fn().mockResolvedValue(variant),
-        update: jest.fn(),
-      },
-      stockMovement: {
-        create: jest.fn(),
-      },
-      $transaction: jest
-        .fn()
-        .mockResolvedValue([
-          {},
-          variant
-            ? { ...variant, stockQuantity: variant.stockQuantity }
-            : undefined,
-        ]),
+    const findUnique = jest.fn().mockResolvedValue(variant);
+    const update = jest.fn();
+    const create = jest.fn();
+    const transaction = jest
+      .fn()
+      .mockResolvedValue([
+        {},
+        variant
+          ? { ...variant, stockQuantity: variant.stockQuantity }
+          : undefined,
+      ]);
+    const prisma = {
+      productVariant: { findUnique, update },
+      stockMovement: { create },
+      $transaction: transaction,
     } as unknown as PrismaService;
+    return { prisma, update, create, transaction };
   }
 
   it('throws NotFoundException when the variant does not exist', async () => {
-    const prisma = createImportPrismaMock(null);
+    const { prisma } = createImportPrismaMock(null);
     const service = new InventoryService(prisma);
 
     await expect(
@@ -207,11 +209,11 @@ describe('InventoryService — import', () => {
   });
 
   it('increments stock and records an IMPORT movement', async () => {
-    const prisma = createImportPrismaMock({ id: 'v1', stockQuantity: 5 });
-    (prisma.$transaction as jest.Mock).mockResolvedValue([
-      {},
-      { stockQuantity: 15 },
-    ]);
+    const { prisma, update, create, transaction } = createImportPrismaMock({
+      id: 'v1',
+      stockQuantity: 5,
+    });
+    transaction.mockResolvedValue([{}, { stockQuantity: 15 }]);
     const service = new InventoryService(prisma);
 
     const result = await service.import(
@@ -221,12 +223,10 @@ describe('InventoryService — import', () => {
     );
 
     expect(result).toEqual({ stockQuantity: 15 });
-    expect(prisma.$transaction as unknown as jest.Mock).toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalled();
 
     // Verify stockMovement.create was called with correct data
-    expect(
-      prisma.stockMovement.create as unknown as jest.Mock,
-    ).toHaveBeenCalledWith({
+    expect(create).toHaveBeenCalledWith({
       data: {
         productVariantId: 'v1',
         type: 'IMPORT',
@@ -237,9 +237,7 @@ describe('InventoryService — import', () => {
     });
 
     // Verify productVariant.update was called with correct arguments
-    expect(
-      prisma.productVariant.update as unknown as jest.Mock,
-    ).toHaveBeenCalledWith({
+    expect(update).toHaveBeenCalledWith({
       where: { id: 'v1' },
       data: { stockQuantity: { increment: 10 } },
     });
@@ -250,20 +248,20 @@ describe('InventoryService — adjust', () => {
   function createAdjustPrismaMock(
     variant: { id: string; stockQuantity: number } | null,
   ) {
-    return {
-      productVariant: {
-        findUnique: jest.fn().mockResolvedValue(variant),
-        update: jest.fn(),
-      },
-      stockMovement: {
-        create: jest.fn(),
-      },
-      $transaction: jest.fn(),
+    const findUnique = jest.fn().mockResolvedValue(variant);
+    const update = jest.fn();
+    const create = jest.fn();
+    const transaction = jest.fn();
+    const prisma = {
+      productVariant: { findUnique, update },
+      stockMovement: { create },
+      $transaction: transaction,
     } as unknown as PrismaService;
+    return { prisma, update, create, transaction };
   }
 
   it('throws NotFoundException when the variant does not exist', async () => {
-    const prisma = createAdjustPrismaMock(null);
+    const { prisma } = createAdjustPrismaMock(null);
     const service = new InventoryService(prisma);
 
     await expect(
@@ -276,7 +274,7 @@ describe('InventoryService — adjust', () => {
   });
 
   it('rejects EXPORT that would make stock negative', async () => {
-    const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 3 });
+    const { prisma } = createAdjustPrismaMock({ id: 'v1', stockQuantity: 3 });
     const service = new InventoryService(prisma);
 
     await expect(
@@ -289,11 +287,11 @@ describe('InventoryService — adjust', () => {
   });
 
   it('applies EXPORT and records a negative movement', async () => {
-    const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 10 });
-    (prisma.$transaction as jest.Mock).mockResolvedValue([
-      {},
-      { stockQuantity: 6 },
-    ]);
+    const { prisma, update, create, transaction } = createAdjustPrismaMock({
+      id: 'v1',
+      stockQuantity: 10,
+    });
+    transaction.mockResolvedValue([{}, { stockQuantity: 6 }]);
     const service = new InventoryService(prisma);
 
     const result = await service.adjust(
@@ -305,9 +303,7 @@ describe('InventoryService — adjust', () => {
     expect(result).toEqual({ stockQuantity: 6 });
 
     // Verify stockMovement.create was called with correct data
-    expect(
-      prisma.stockMovement.create as unknown as jest.Mock,
-    ).toHaveBeenCalledWith({
+    expect(create).toHaveBeenCalledWith({
       data: {
         productVariantId: 'v1',
         type: 'EXPORT',
@@ -318,16 +314,14 @@ describe('InventoryService — adjust', () => {
     });
 
     // Verify productVariant.update was called with correct arguments
-    expect(
-      prisma.productVariant.update as unknown as jest.Mock,
-    ).toHaveBeenCalledWith({
+    expect(update).toHaveBeenCalledWith({
       where: { id: 'v1' },
       data: { stockQuantity: { increment: -4 } },
     });
   });
 
   it('rejects ADJUSTMENT with no real change', async () => {
-    const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 8 });
+    const { prisma } = createAdjustPrismaMock({ id: 'v1', stockQuantity: 8 });
     const service = new InventoryService(prisma);
 
     await expect(
@@ -342,11 +336,11 @@ describe('InventoryService — adjust', () => {
   });
 
   it('applies ADJUSTMENT and records the signed delta', async () => {
-    const prisma = createAdjustPrismaMock({ id: 'v1', stockQuantity: 42 });
-    (prisma.$transaction as jest.Mock).mockResolvedValue([
-      {},
-      { stockQuantity: 38 },
-    ]);
+    const { prisma, update, create, transaction } = createAdjustPrismaMock({
+      id: 'v1',
+      stockQuantity: 42,
+    });
+    transaction.mockResolvedValue([{}, { stockQuantity: 38 }]);
     const service = new InventoryService(prisma);
 
     const result = await service.adjust(
@@ -362,9 +356,7 @@ describe('InventoryService — adjust', () => {
     expect(result).toEqual({ stockQuantity: 38 });
 
     // Verify stockMovement.create was called with correct data
-    expect(
-      prisma.stockMovement.create as unknown as jest.Mock,
-    ).toHaveBeenCalledWith({
+    expect(create).toHaveBeenCalledWith({
       data: {
         productVariantId: 'v1',
         type: 'ADJUSTMENT',
@@ -375,9 +367,7 @@ describe('InventoryService — adjust', () => {
     });
 
     // Verify productVariant.update was called with correct arguments
-    expect(
-      prisma.productVariant.update as unknown as jest.Mock,
-    ).toHaveBeenCalledWith({
+    expect(update).toHaveBeenCalledWith({
       where: { id: 'v1' },
       data: { stockQuantity: { increment: -4 } },
     });
@@ -385,6 +375,17 @@ describe('InventoryService — adjust', () => {
 });
 
 describe('InventoryService — getHistory', () => {
+  function createHistoryPrismaMock() {
+    const findMany = jest.fn();
+    const count = jest.fn();
+    const transaction = jest.fn();
+    const prisma = {
+      $transaction: transaction,
+      stockMovement: { findMany, count },
+    } as unknown as PrismaService;
+    return { prisma, transaction, findMany, count };
+  }
+
   it('maps movement + variant + product + creator fields into the response shape', async () => {
     const movement = {
       id: 'm1',
@@ -401,10 +402,8 @@ describe('InventoryService — getHistory', () => {
       },
       createdBy: { fullName: 'Quản trị viên' },
     };
-    const prisma = {
-      $transaction: jest.fn().mockResolvedValue([[movement], 1]),
-      stockMovement: { findMany: jest.fn(), count: jest.fn() },
-    } as unknown as PrismaService;
+    const { prisma, transaction } = createHistoryPrismaMock();
+    transaction.mockResolvedValue([[movement], 1]);
     const service = new InventoryService(prisma);
 
     const result = await service.getHistory({ page: 1, limit: 20 });
@@ -449,10 +448,8 @@ describe('InventoryService — getHistory', () => {
       },
       createdBy: null,
     };
-    const prisma = {
-      $transaction: jest.fn().mockResolvedValue([[movement], 1]),
-      stockMovement: { findMany: jest.fn(), count: jest.fn() },
-    } as unknown as PrismaService;
+    const { prisma, transaction } = createHistoryPrismaMock();
+    transaction.mockResolvedValue([[movement], 1]);
     const service = new InventoryService(prisma);
 
     const result = await service.getHistory({ page: 1, limit: 20 });
