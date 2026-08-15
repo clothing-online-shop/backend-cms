@@ -80,6 +80,7 @@ Gộp nhanh: `git pull && pnpm install && npx prisma migrate dev && pnpm start:d
 ## Bắt đầu tính năng mới
 
 - Trước khi code: `git checkout develop && git pull` để lấy code mới nhất, sau đó tạo branch mới từ `develop` với tên phù hợp tính năng đang làm (`feature/<mo-ta-ngan>`, `fix/<mo-ta-ngan>`) — không code thẳng trên `develop`.
+- Trước khi viết 1 hàm/helper mới: rà lại codebase xem đã có sẵn cái làm việc tương tự chưa (grep trong `src/common/utils/`, module liên quan) — có thì dùng lại, không viết mới. Trong lúc code, nếu thấy 1 hàm sắp viết ra nhiều khả năng còn dùng lại ở module khác (không phải chỉ đoán, mà thấy rõ lý do — vd logic không phụ thuộc riêng 1 model) thì viết thẳng vào `src/common/utils/` ngay từ đầu, không đợi phát hiện trùng lặp rồi mới refactor sau.
 - Sau khi code xong, trước khi báo hoàn thành/mở PR: chủ động tự review lại toàn bộ diff theo đúng quy ước trong `CLAUDE.md` này và `README.md` của repo — không chỉ dựa vào lint/build pass.
 
 ## Trước khi mở PR
