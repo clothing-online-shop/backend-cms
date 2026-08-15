@@ -155,6 +155,7 @@ model Product {
   metaTitle         String?
   metaDescription   String?
   isDelete          Boolean       @default(false)
+  isFeatured        Boolean       @default(false)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 

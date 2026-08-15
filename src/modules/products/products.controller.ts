@@ -73,9 +73,17 @@ export class ProductsController {
     enum: ProductStatus,
   })
   @ApiQuery({
+    name: 'isFeatured',
+    required: false,
+    type: Boolean,
+    description: 'Lọc sản phẩm được admin gắn cờ nổi bật',
+  })
+  @ApiQuery({
     name: 'sort',
     required: false,
     enum: ['price_asc', 'price_desc', 'newest', 'best_selling'],
+    description:
+      'best_selling: sắp xếp theo tổng số lượng bán trong 30 ngày gần nhất (chỉ tính đơn COMPLETED)',
   })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })

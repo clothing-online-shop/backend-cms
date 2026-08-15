@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsOptional,
   IsPositive,
@@ -64,6 +65,14 @@ export class CreateProductDto {
   @IsOptional()
   @IsEnum(ProductStatus)
   status?: ProductStatus;
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Admin gắn cờ sản phẩm nổi bật',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isFeatured?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -89,6 +90,16 @@ export class ListProductsQueryDto {
   @IsOptional()
   @IsIn(PRODUCT_SORT_VALUES)
   sort?: ProductSort;
+
+  // KHÔNG dùng @Type(() => Boolean) — nó chạy Boolean(value) trên chuỗi thô, nên
+  // 'false' cũng thành true (xem list-inventory-query.dto.ts làm mẫu).
+  @ApiPropertyOptional({
+    description: 'Lọc sản phẩm được admin gắn cờ nổi bật',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  isFeatured?: boolean;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  OrderStatus,
   Prisma,
   Product,
   ProductVariant,
@@ -37,6 +38,7 @@ type ProductWithStockVariants = Product & {
 
 const RELATED_PRODUCTS_LIMIT = 8;
 const DEFAULT_PAGE_LIMIT = 20;
+const BEST_SELLING_WINDOW_DAYS = 30;
 
 @Injectable()
 export class ProductsService {
@@ -109,6 +111,14 @@ export class ProductsService {
       };
     }
 
+    if (query.isFeatured !== undefined) {
+      where.isFeatured = query.isFeatured;
+    }
+
+    if (query.sort === 'best_selling') {
+      return this.findAllSortedByBestSelling(where, page, limit);
+    }
+
     const [products, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
@@ -132,6 +142,88 @@ export class ProductsService {
         totalPages: total === 0 ? 0 : Math.ceil(total / limit),
       },
     };
+  }
+
+  // "Bán chạy nhất" là số lượng bán tính qua OrderItem/Order (2 tầng join tính từ Product),
+  // Prisma không orderBy được field tổng hợp kiểu này — phải tự lấy hết sản phẩm khớp filter
+  // (không skip/take ở DB), tính map productId -> tổng số lượng bán 30 ngày rồi sort/cắt trang
+  // ở tầng ứng dụng. Danh mục CMS quy mô vừa (không phải catalog hàng triệu sản phẩm) nên chấp
+  // nhận được, không cần tối ưu thêm.
+  private async findAllSortedByBestSelling(
+    where: Prisma.ProductWhereInput,
+    page: number,
+    limit: number,
+  ) {
+    const products = await this.prisma.product.findMany({
+      where,
+      include: {
+        variants: { select: { stockQuantity: true } },
+        collections: { include: { collection: true } },
+      },
+    });
+
+    const soldQuantityByProductId = await this.getSoldQuantityByProductId(
+      products.map((p) => p.id),
+    );
+
+    products.sort((a, b) => {
+      const diff =
+        (soldQuantityByProductId.get(b.id) ?? 0) -
+        (soldQuantityByProductId.get(a.id) ?? 0);
+      return diff !== 0 ? diff : b.createdAt.getTime() - a.createdAt.getTime();
+    });
+
+    const total = products.length;
+    const start = (page - 1) * limit;
+    return {
+      data: products.slice(start, start + limit).map(toListItem),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // Chỉ tính đơn COMPLETED — đơn đang xử lý (PENDING/CONFIRMED/SHIPPING) chưa chắc thành
+  // công, tính vào "đã bán" sẽ đẩy sai sản phẩm lên đầu danh sách bán chạy.
+  private async getSoldQuantityByProductId(
+    productIds: string[],
+  ): Promise<Map<string, number>> {
+    if (productIds.length === 0) return new Map();
+
+    const since = new Date();
+    since.setDate(since.getDate() - BEST_SELLING_WINDOW_DAYS);
+
+    const grouped = await this.prisma.orderItem.groupBy({
+      by: ['productVariantId'],
+      where: {
+        productVariant: { productId: { in: productIds } },
+        order: { status: OrderStatus.COMPLETED, createdAt: { gte: since } },
+      },
+      _sum: { quantity: true },
+    });
+    if (grouped.length === 0) return new Map();
+
+    const variants = await this.prisma.productVariant.findMany({
+      where: { id: { in: grouped.map((g) => g.productVariantId) } },
+      select: { id: true, productId: true },
+    });
+    const productIdByVariantId = new Map(
+      variants.map((v) => [v.id, v.productId]),
+    );
+
+    const result = new Map<string, number>();
+    for (const g of grouped) {
+      const productId = productIdByVariantId.get(g.productVariantId);
+      if (!productId) continue;
+      result.set(
+        productId,
+        (result.get(productId) ?? 0) + (g._sum.quantity ?? 0),
+      );
+    }
+    return result;
   }
 
   async findBySlug(slug: string) {
@@ -256,6 +348,7 @@ export class ProductsService {
           imagePublicIds: dto.imagePublicIds ?? [],
           metaTitle: dto.metaTitle,
           metaDescription: dto.metaDescription,
+          isFeatured: dto.isFeatured ?? false,
           variants: { create: variantsData },
           collections: collectionIds?.length
             ? {
@@ -353,6 +446,7 @@ export class ProductsService {
           imagePublicIds: dto.imagePublicIds,
           metaTitle: dto.metaTitle,
           metaDescription: dto.metaDescription,
+          isFeatured: dto.isFeatured,
         },
       });
       if (count === 0) {
@@ -803,9 +897,8 @@ function resolveOrderBy(
       return { basePrice: 'asc' };
     case 'price_desc':
       return { basePrice: 'desc' };
-    case 'best_selling':
-      // TODO: cần dữ liệu OrderItem để tính best-selling thật (Sprint 3+), tạm sort theo mới nhất
-      return { createdAt: 'desc' };
+    // 'best_selling' được xử lý riêng ở findAllSortedByBestSelling() (aggregate qua OrderItem,
+    // không orderBy được trực tiếp ở DB) — findAll() rẽ nhánh trước khi gọi tới hàm này.
     case 'newest':
     default:
       return { createdAt: 'desc' };
@@ -842,6 +935,7 @@ function toListItem(product: ProductWithStockVariants) {
     status: product.status,
     categoryId: product.categoryId,
     isDelete: product.isDelete,
+    isFeatured: product.isFeatured,
     totalStock: product.variants.reduce((sum, v) => sum + v.stockQuantity, 0),
     collections: (product.collections ?? []).map((cp) => ({
       id: cp.collection.id,
