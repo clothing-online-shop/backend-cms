@@ -162,7 +162,9 @@ export class CategoriesService {
     const existing = await this.assertCategoryExists(id);
 
     const [productCount, childrenCount] = await Promise.all([
-      this.prisma.product.count({ where: { categoryId: id } }),
+      this.prisma.product.count({
+        where: { categoryId: id, isDelete: false },
+      }),
       this.prisma.category.count({ where: { parentId: id, isDelete: false } }),
     ]);
 

@@ -21,13 +21,14 @@ import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { ADMIN_PANEL_ROLES } from '../../common/constants/admin-panel-roles';
 import { ProductStatus } from './product-status.enum';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
-import { UpdateStockDto } from './dto/update-stock.dto';
 import { AssignCollectionsDto } from './dto/assign-collections.dto';
 
 @ApiTags('products')
@@ -98,15 +99,22 @@ export class ProductsController {
   @Post()
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Tạo sản phẩm mới kèm variants (Admin)' })
-  create(@Body() dto: CreateProductDto) {
-    return this.productsService.create(dto);
+  create(
+    @Body() dto: CreateProductDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.productsService.create(dto, user.id);
   }
 
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Cập nhật sản phẩm + đồng bộ lại variants (Admin)' })
-  update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
-    return this.productsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.productsService.update(id, dto, user.id);
   }
 
   @Delete(':id')
@@ -117,17 +125,6 @@ export class ProductsController {
   })
   remove(@Param('id') id: string) {
     return this.productsService.remove(id);
-  }
-
-  @Patch(':id/variants/:variantId/stock')
-  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
-  @ApiOperation({ summary: 'Cập nhật nhanh tồn kho 1 variant (Admin)' })
-  updateVariantStock(
-    @Param('id') id: string,
-    @Param('variantId') variantId: string,
-    @Body() dto: UpdateStockDto,
-  ) {
-    return this.productsService.updateVariantStock(id, variantId, dto);
   }
 
   @Put(':id/collections')

@@ -11,6 +11,7 @@ import { UpdateBannerDto } from './dto/update-banner.dto';
 import { ListBannersQueryDto } from './dto/list-banners-query.dto';
 import { ReorderBannersDto } from './dto/reorder-banners.dto';
 import { BannerStatus } from './banner-status.enum';
+import { toDateOnly } from '../collections/collection-status.util';
 
 export type BannerWithStatus = Banner & { status: BannerStatus };
 
@@ -165,12 +166,6 @@ function assertDateRange(startDate: string, endDate: string): void {
   if (new Date(endDate) < new Date(startDate)) {
     throw new BadRequestException('Ngày kết thúc phải sau ngày bắt đầu');
   }
-}
-
-// So sánh theo ngày lịch (bỏ qua giờ) để banner kết thúc "hôm nay" vẫn coi là RUNNING
-// tới hết ngày, thay vì rơi sang ENDED ngay từ 00:00.
-function toDateOnly(date: Date): number {
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 }
 
 function withStatus(banner: Banner): BannerWithStatus {
