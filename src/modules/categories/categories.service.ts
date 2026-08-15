@@ -7,6 +7,7 @@ import {
 import { Category } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
+import { assertImagePublicIdAligned } from '../../common/utils/image-pairing.util';
 import { UploadService } from '../upload/upload.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -459,22 +460,6 @@ function addDescendantProductCounts(nodes: CategoryTreeNode[]): void {
     node.productCount += node.children.reduce(
       (sum, child) => sum + child.productCount,
       0,
-    );
-  }
-}
-
-// image/imagePublicId phải luôn đi cùng nhau — DB không tách bảng ảnh riêng để tra
-// publicId theo url, nếu client chỉ gửi 1 trong 2 thì field còn lại giữ nguyên giá trị cũ
-// trong khi image đã đổi, làm existing.imagePublicId ở update() không còn khớp với image
-// hiện tại nữa — lần đổi ảnh sau sẽ dọn nhầm/không dọn được đúng ảnh trên Cloudinary
-// (cùng lớp lỗi với assertImagesPublicIdsAligned ở products.service.ts).
-function assertImagePublicIdAligned(
-  image: string | null | undefined,
-  imagePublicId: string | null | undefined,
-): void {
-  if ((image !== undefined) !== (imagePublicId !== undefined)) {
-    throw new BadRequestException(
-      'image và imagePublicId phải được gửi cùng nhau',
     );
   }
 }

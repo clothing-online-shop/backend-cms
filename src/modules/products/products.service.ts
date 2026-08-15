@@ -13,6 +13,7 @@ import {
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug, generateSku } from '../../common/utils/slug.util';
 import { diffNewlyAdded } from '../../common/utils/diff.util';
+import { assertImagesPublicIdsAligned } from '../../common/utils/image-pairing.util';
 import { UploadService } from '../upload/upload.service';
 import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -823,24 +824,6 @@ function assertNoDuplicateVariants(
       );
     }
     seen.add(key);
-  }
-}
-
-// images[i] và imagePublicIds[i] phải luôn cùng vị trí (DB không có bảng ảnh riêng để
-// tra publicId theo url) — nếu 2 mảng lệch độ dài, lần cleanupRemovedProductAssets sau
-// sẽ tra publicId sai vị trí, có thể xoá nhầm ảnh đang dùng thật trên Cloudinary.
-function assertImagesPublicIdsAligned(
-  images: string[] | undefined,
-  imagePublicIds: string[] | undefined,
-): void {
-  if (
-    images !== undefined &&
-    imagePublicIds !== undefined &&
-    images.length !== imagePublicIds.length
-  ) {
-    throw new BadRequestException(
-      'images và imagePublicIds phải có cùng số lượng phần tử',
-    );
   }
 }
 
