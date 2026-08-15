@@ -62,7 +62,8 @@ src/modules/<ten-module>/
 
 ## Test
 
-- Auth, Orders, Payments là 3 module bắt buộc phải có test (unit cho service, e2e cho luồng chính) trước khi coi là "xong" — đây là các luồng liên quan tiền/đơn hàng, lỗi ở đây ảnh hưởng trực tiếp khách hàng.
+- Auth và Orders là 2 module bắt buộc phải có test (unit cho service, e2e cho luồng chính) khi đã có logic thật, trước khi coi là "xong" — đây là luồng đăng nhập và đơn hàng, lỗi ở đây ảnh hưởng trực tiếp khách hàng. Payments/thanh toán không phải module của backend-cms (chỉ có model `PaymentTransaction`, logic thật nằm ở `backend-user`) — không áp dụng rule này ở repo này.
+- Hiện trạng (cần trả nợ, không phải ngoại lệ được bỏ qua): `orders` hiện chỉ là stub rỗng (`OrdersService {}` + TODO) — rule test áp dụng ngay khi bắt đầu triển khai logic thật, không đợi xong hẳn mới viết. `auth` đã có logic thật (login/refresh token/argon2) nhưng **hiện chưa có test nào** dù thuộc diện bắt buộc.
 - Chạy `pnpm --filter @clothing-shop/be test` trước khi coi 1 module là hoàn thành.
 
 ## Sau khi pull code (trước khi code tiếp)
