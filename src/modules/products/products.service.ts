@@ -663,7 +663,7 @@ export class ProductsService {
 
   private async assertCategoryExists(id: string): Promise<void> {
     const category = await this.prisma.category.findUnique({ where: { id } });
-    if (!category) {
+    if (!category || category.isDelete) {
       throw new BadRequestException('Danh mục không tồn tại');
     }
   }
@@ -712,12 +712,13 @@ export class ProductsService {
 
   private async resolveCategoryIds(slugOrId: string): Promise<string[]> {
     const category = await this.prisma.category.findFirst({
-      where: { OR: [{ slug: slugOrId }, { id: slugOrId }] },
+      where: { OR: [{ slug: slugOrId }, { id: slugOrId }], isDelete: false },
       select: { id: true },
     });
     if (!category) return [];
 
     const all = await this.prisma.category.findMany({
+      where: { isDelete: false },
       select: { id: true, parentId: true },
     });
     const childrenMap = new Map<string, string[]>();

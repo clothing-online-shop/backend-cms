@@ -79,7 +79,7 @@ export class AuthService {
 
     if (!matchedTokenId) {
       throw new UnauthorizedException(
-        'Refresh token không hợp lệ. hoặc đã bị thu hồi',
+        'Refresh token không hợp lệ hoặc đã bị thu hồi.',
       );
     }
 

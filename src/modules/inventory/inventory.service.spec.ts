@@ -248,9 +248,13 @@ function createTxPrismaMock(
   const findUniqueOrThrow = jest.fn().mockResolvedValue(variant);
   const update = jest.fn();
   const create = jest.fn();
+  // lockVariant() dùng $queryRaw (SELECT ... FOR UPDATE) thay vì findUnique để khoá dòng —
+  // trả về mảng giống raw query thật (rỗng khi không tìm thấy biến thể).
+  const queryRaw = jest.fn().mockResolvedValue(variant ? [variant] : []);
   const tx = {
     productVariant: { findUnique, findUniqueOrThrow, update },
     stockMovement: { create },
+    $queryRaw: queryRaw,
   };
   const transaction = jest
     .fn()
@@ -258,9 +262,18 @@ function createTxPrismaMock(
   const prisma = {
     productVariant: { findUnique, findUniqueOrThrow, update },
     stockMovement: { create },
+    $queryRaw: queryRaw,
     $transaction: transaction,
   } as unknown as PrismaService;
-  return { prisma, findUnique, findUniqueOrThrow, update, create, transaction };
+  return {
+    prisma,
+    findUnique,
+    findUniqueOrThrow,
+    update,
+    create,
+    queryRaw,
+    transaction,
+  };
 }
 
 describe('InventoryService — import', () => {

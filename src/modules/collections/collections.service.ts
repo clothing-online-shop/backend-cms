@@ -159,8 +159,13 @@ export class CollectionsService {
       slug = await this.resolveUniqueSlug(dto.name, id);
     }
 
-    const updated = await this.prisma.collection.update({
-      where: { id },
+    // updateMany (không phải update) + check isDelete:false ngay trong where — chặn race
+    // giữa lúc findExisting() đọc dữ liệu ở trên và lúc ghi ở đây: nếu bộ sưu tập bị xóa
+    // mềm bởi 1 request khác đúng trong khoảng đó, update thường (chỉ where: {id}) vẫn ghi
+    // đè bình thường, coi như "hồi sinh" 1 bản ghi lẽ ra phải đóng băng sau khi xóa (xem
+    // cùng pattern ở categories.service.ts/products.service.ts update()).
+    const { count } = await this.prisma.collection.updateMany({
+      where: { id, isDelete: false },
       data: {
         name: dto.name,
         slug,
@@ -170,6 +175,12 @@ export class CollectionsService {
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
       },
+    });
+    if (count === 0) {
+      throw new NotFoundException('Không tìm thấy bộ sưu tập');
+    }
+    const updated = await this.prisma.collection.findUniqueOrThrow({
+      where: { id },
       include: PRODUCTS_INCLUDE,
     });
     return withStatus(updated);

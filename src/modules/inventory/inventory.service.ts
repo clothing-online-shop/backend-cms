@@ -99,6 +99,23 @@ export class InventoryService {
     };
   }
 
+  // findUnique thường KHÔNG khoá dòng — 2 transaction đồng thời vẫn có thể cùng đọc được
+  // stockQuantity cũ trước khi transaction kia commit, khiến điều kiện "không cho âm kho"
+  // validate trên dữ liệu đã stale (UPDATE ... increment ở applyMovement() vẫn cộng đúng
+  // vì là atomic ở tầng DB, nhưng bản thân điều kiện chặn âm kho thì không còn đáng tin).
+  // SELECT ... FOR UPDATE khoá dòng ngay trong transaction hiện tại — transaction thứ 2
+  // phải đợi transaction thứ 1 commit xong mới đọc được, lúc đó thấy đúng stockQuantity
+  // mới nhất để validate.
+  private async lockVariant(
+    tx: Prisma.TransactionClient,
+    variantId: string,
+  ): Promise<{ id: string; stockQuantity: number } | null> {
+    const rows = await tx.$queryRaw<{ id: string; stockQuantity: number }[]>`
+      SELECT id, "stockQuantity" FROM "product_variants" WHERE id = ${variantId} FOR UPDATE
+    `;
+    return rows[0] ?? null;
+  }
+
   // Ghi 1 movement + cộng dồn tồn kho trong CÙNG 1 transaction. Tách riêng vì
   // import/adjust chỉ khác nhau ở cách tính delta, phần ghi là y hệt nhau.
   private async applyMovement(
@@ -131,9 +148,7 @@ export class InventoryService {
   // làm tồn kho âm hoặc điều chỉnh không về đúng số đã kiểm kê.
   async import(variantId: string, dto: ImportStockDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const variant = await tx.productVariant.findUnique({
-        where: { id: variantId },
-      });
+      const variant = await this.lockVariant(tx, variantId);
       if (!variant) {
         throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
       }
@@ -155,9 +170,7 @@ export class InventoryService {
 
   async adjust(variantId: string, dto: AdjustStockDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const variant = await tx.productVariant.findUnique({
-        where: { id: variantId },
-      });
+      const variant = await this.lockVariant(tx, variantId);
       if (!variant) {
         throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
       }
@@ -213,7 +226,7 @@ export class InventoryService {
           : {},
         query.type ? { type: query.type } : {},
         query.from ? { createdAt: { gte: new Date(query.from) } } : {},
-        query.to ? { createdAt: { lte: new Date(query.to) } } : {},
+        query.to ? { createdAt: { lte: toInclusiveEndOfDay(query.to) } } : {},
       ],
     };
 
@@ -261,4 +274,14 @@ export class InventoryService {
       },
     };
   }
+}
+
+// DTO ghi rõ `to` là "lọc tới ngày này" (theo ngày, không phải mốc giờ chính xác) — chuỗi
+// ngày thuần "YYYY-MM-DD" phải được hiểu là hết ngày đó, nếu không new Date() sẽ parse ra
+// 00:00 UTC và loại luôn gần hết dữ liệu trong đúng ngày được chọn. Chuỗi đã kèm giờ
+// (FE hiện đang tự gửi "...T23:59:59.999") thì giữ nguyên, không cộng dồn 2 lần.
+function toInclusiveEndOfDay(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T23:59:59.999`)
+    : new Date(value);
 }
