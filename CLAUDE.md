@@ -19,6 +19,7 @@ src/modules/<ten-module>/
 - Logic nghiệp vụ nằm ở `*.service.ts`. Controller chỉ nhận request, gọi service, trả response — không xử lý logic trong controller.
 - Muốn dùng service của module khác: `imports` module đó + đảm bảo `exports` service cần dùng (xem `UsersModule` export `UsersService` để `AuthModule` dùng).
 - Đặt tên file/thư mục kebab-case, tên class PascalCase (`ProductsService`, `products.service.ts`).
+- Hàm helper (không phải service/DTO/enum) được dùng ở ≥ 2 module → viết vào `src/common/utils/<ten>.util.ts`, không để nằm trong 1 module rồi module khác import chéo qua, càng không copy-paste viết lại (xem `slug.util.ts`, `diff.util.ts`, `date.util.ts`, `image-pairing.util.ts` làm mẫu). Trước khi viết 1 helper mới (so ngày, validate cặp field, format...), grep thử xem `common/utils/` đã có sẵn chưa. Enum/type gắn với đúng 1 model thì vẫn để trong module đó (vd `ProductStatus`, `BannerStatus`) — không phải cái gì dùng chung cũng chuyển ra, chỉ hàm/logic thật sự generic.
 
 ## DTO & Validation
 
