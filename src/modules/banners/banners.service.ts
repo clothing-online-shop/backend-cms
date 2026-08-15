@@ -11,7 +11,8 @@ import { UpdateBannerDto } from './dto/update-banner.dto';
 import { ListBannersQueryDto } from './dto/list-banners-query.dto';
 import { ReorderBannersDto } from './dto/reorder-banners.dto';
 import { BannerStatus } from './banner-status.enum';
-import { toDateOnly } from '../collections/collection-status.util';
+import { toDateOnly, assertDateRange } from '../../common/utils/date.util';
+import { assertImagePublicIdAligned } from '../../common/utils/image-pairing.util';
 
 export type BannerWithStatus = Banner & { status: BannerStatus };
 
@@ -64,7 +65,10 @@ export class BannersService {
   }
 
   async update(id: string, dto: UpdateBannerDto): Promise<BannerWithStatus> {
-    assertImagePublicIdAligned(dto.imageUrl, dto.imagePublicId);
+    assertImagePublicIdAligned(dto.imageUrl, dto.imagePublicId, {
+      image: 'imageUrl',
+      imagePublicId: 'imagePublicId',
+    });
     const existing = await this.findExisting(id);
 
     const startDate = dto.startDate ?? existing.startDate.toISOString();
@@ -148,23 +152,6 @@ export class BannersService {
       select: { sortOrder: true },
     });
     return (last?.sortOrder ?? -1) + 1;
-  }
-}
-
-function assertImagePublicIdAligned(
-  imageUrl: string | undefined,
-  imagePublicId: string | undefined,
-): void {
-  if ((imageUrl !== undefined) !== (imagePublicId !== undefined)) {
-    throw new BadRequestException(
-      'imageUrl và imagePublicId phải được gửi cùng nhau',
-    );
-  }
-}
-
-function assertDateRange(startDate: string, endDate: string): void {
-  if (new Date(endDate) < new Date(startDate)) {
-    throw new BadRequestException('Ngày kết thúc phải sau ngày bắt đầu');
   }
 }
 

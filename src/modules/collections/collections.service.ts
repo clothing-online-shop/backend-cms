@@ -7,13 +7,14 @@ import {
 import { Collection, Prisma } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
+import { toDateOnly, assertDateRange } from '../../common/utils/date.util';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { UpdateCollectionDto } from './dto/update-collection.dto';
 import { ListCollectionsQueryDto } from './dto/list-collections-query.dto';
 import { AssignProductsDto } from './dto/assign-products.dto';
 import { CollectionStatus } from './collection-status.enum';
 import { ErrorCode } from '../../common/constants/error-codes';
-import { toDateOnly, isCollectionEnded } from './collection-status.util';
+import { isCollectionEnded } from './collection-status.util';
 import { ProductStatus } from '../products/product-status.enum';
 import { diffNewlyAdded } from '../../common/utils/diff.util';
 
@@ -348,12 +349,6 @@ export class CollectionsService {
     }
 
     return candidate;
-  }
-}
-
-function assertDateRange(startDate: string, endDate: string): void {
-  if (new Date(endDate) < new Date(startDate)) {
-    throw new BadRequestException('Ngày kết thúc phải sau ngày bắt đầu');
   }
 }
 

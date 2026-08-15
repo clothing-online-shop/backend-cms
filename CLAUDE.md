@@ -19,6 +19,7 @@ src/modules/<ten-module>/
 - Logic nghiệp vụ nằm ở `*.service.ts`. Controller chỉ nhận request, gọi service, trả response — không xử lý logic trong controller.
 - Muốn dùng service của module khác: `imports` module đó + đảm bảo `exports` service cần dùng (xem `UsersModule` export `UsersService` để `AuthModule` dùng).
 - Đặt tên file/thư mục kebab-case, tên class PascalCase (`ProductsService`, `products.service.ts`).
+- Hàm helper (không phải service/DTO/enum) được dùng ở ≥ 2 module → viết vào `src/common/utils/<ten>.util.ts`, không để nằm trong 1 module rồi module khác import chéo qua, càng không copy-paste viết lại (xem `slug.util.ts`, `diff.util.ts`, `date.util.ts`, `image-pairing.util.ts` làm mẫu). Trước khi viết 1 helper mới (so ngày, validate cặp field, format...), grep thử xem `common/utils/` đã có sẵn chưa. Enum/type gắn với đúng 1 model thì vẫn để trong module đó (vd `ProductStatus`, `BannerStatus`) — không phải cái gì dùng chung cũng chuyển ra, chỉ hàm/logic thật sự generic.
 
 ## DTO & Validation
 
@@ -61,7 +62,8 @@ src/modules/<ten-module>/
 
 ## Test
 
-- Auth, Orders, Payments là 3 module bắt buộc phải có test (unit cho service, e2e cho luồng chính) trước khi coi là "xong" — đây là các luồng liên quan tiền/đơn hàng, lỗi ở đây ảnh hưởng trực tiếp khách hàng.
+- Auth và Orders là 2 module bắt buộc phải có test (unit cho service, e2e cho luồng chính) khi đã có logic thật, trước khi coi là "xong" — đây là luồng đăng nhập và đơn hàng, lỗi ở đây ảnh hưởng trực tiếp khách hàng. Payments/thanh toán không phải module của backend-cms (chỉ có model `PaymentTransaction`, logic thật nằm ở `backend-user`) — không áp dụng rule này ở repo này.
+- Hiện trạng (cần trả nợ, không phải ngoại lệ được bỏ qua): `orders` hiện chỉ là stub rỗng (`OrdersService {}` + TODO) — rule test áp dụng ngay khi bắt đầu triển khai logic thật, không đợi xong hẳn mới viết. `auth` đã có logic thật (login/refresh token/argon2) nhưng **hiện chưa có test nào** dù thuộc diện bắt buộc.
 - Chạy `pnpm --filter @clothing-shop/be test` trước khi coi 1 module là hoàn thành.
 
 ## Sau khi pull code (trước khi code tiếp)
@@ -79,6 +81,7 @@ Gộp nhanh: `git pull && pnpm install && npx prisma migrate dev && pnpm start:d
 ## Bắt đầu tính năng mới
 
 - Trước khi code: `git checkout develop && git pull` để lấy code mới nhất, sau đó tạo branch mới từ `develop` với tên phù hợp tính năng đang làm (`feature/<mo-ta-ngan>`, `fix/<mo-ta-ngan>`) — không code thẳng trên `develop`.
+- Trước khi viết 1 hàm/helper mới: rà lại codebase xem đã có sẵn cái làm việc tương tự chưa (grep trong `src/common/utils/`, module liên quan) — có thì dùng lại, không viết mới. Trong lúc code, nếu thấy 1 hàm sắp viết ra nhiều khả năng còn dùng lại ở module khác (không phải chỉ đoán, mà thấy rõ lý do — vd logic không phụ thuộc riêng 1 model) thì viết thẳng vào `src/common/utils/` ngay từ đầu, không đợi phát hiện trùng lặp rồi mới refactor sau.
 - Sau khi code xong, trước khi báo hoàn thành/mở PR: chủ động tự review lại toàn bộ diff theo đúng quy ước trong `CLAUDE.md` này và `README.md` của repo — không chỉ dựa vào lint/build pass.
 
 ## Trước khi mở PR
