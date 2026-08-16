@@ -81,6 +81,8 @@ model User {
   refreshTokens  RefreshToken[]
   stockMovements StockMovement[]
   auditLogs      AuditLog[]
+  wishlistItems  WishlistItem[]
+  recentlyViewed RecentlyViewed[]
 
   @@map("users")
 }
@@ -137,33 +139,35 @@ model Category {
 }
 
 model Product {
-  id                String        @id @default(cuid())
+  id                String   @id @default(cuid())
   name              String
-  slug              String        @unique
+  slug              String   @unique
   description       String?
   material          String?
   careInstructions  String?
   brandId           String?
   categoryId        String
-  basePrice         Decimal       @db.Decimal(12, 2)
-  salePrice         Decimal?      @db.Decimal(12, 2)
-  status            Int           @default(0)
+  basePrice         Decimal  @db.Decimal(12, 2)
+  salePrice         Decimal? @db.Decimal(12, 2)
+  status            Int      @default(0)
   thumbnail         String?
   thumbnailPublicId String?
-  images            String[]      @default([])
-  imagePublicIds    String[]      @default([])
+  images            String[] @default([])
+  imagePublicIds    String[] @default([])
   metaTitle         String?
   metaDescription   String?
-  isDelete          Boolean       @default(false)
-  isFeatured        Boolean       @default(false)
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  isDelete          Boolean  @default(false)
+  isFeatured        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  category    Category             @relation(fields: [categoryId], references: [id])
-  brand       Brand?               @relation(fields: [brandId], references: [id])
-  variants    ProductVariant[]
-  reviews     Review[]
-  collections CollectionProduct[]
+  category         Category            @relation(fields: [categoryId], references: [id])
+  brand            Brand?              @relation(fields: [brandId], references: [id])
+  variants         ProductVariant[]
+  reviews          Review[]
+  collections      CollectionProduct[]
+  wishlistedBy     WishlistItem[]
+  recentlyViewedBy RecentlyViewed[]
 
   @@index([categoryId])
   @@index([brandId])
@@ -259,6 +263,40 @@ model CartItem {
 
   @@index([cartId])
   @@map("cart_items")
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("wishlist_items")
+}
+
+// Lịch sử sản phẩm đã xem — theo tài khoản (userId) khi đã đăng nhập, hoặc theo guestId
+// (FE tự sinh UUID lưu cookie/localStorage, gửi qua header X-Guest-Id) khi là khách vãng
+// lai, vì backend-user chưa có cơ chế định danh guest ở server nào khác để tái dùng.
+model RecentlyViewed {
+  id        String   @id @default(cuid())
+  userId    String?
+  guestId   String?
+  productId String
+  viewedAt  DateTime @default(now())
+
+  user    User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@unique([guestId, productId])
+  @@index([userId])
+  @@index([guestId])
+  @@map("recently_viewed")
 }
 
 model Order {
