@@ -6,6 +6,7 @@ import { User, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { UsersService } from '../users/users.service';
 import { isAdminPanelRole } from '../../common/constants/admin-panel-roles';
+import { toSafeUser } from '../../common/utils/safe-user.util';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
@@ -144,12 +145,6 @@ export class AuthService {
 
 function asExpiresIn(value: string): `${number}${'s' | 'm' | 'h' | 'd'}` {
   return value as `${number}${'s' | 'm' | 'h' | 'd'}`;
-}
-
-function toSafeUser(user: User): Omit<User, 'password'> {
-  const safeUser: Partial<User> = { ...user };
-  delete safeUser.password;
-  return safeUser as Omit<User, 'password'>;
 }
 
 function parseDurationMs(duration: string): number {
