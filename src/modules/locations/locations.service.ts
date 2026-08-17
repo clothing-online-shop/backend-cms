@@ -83,10 +83,13 @@ export class LocationsService {
         update: { name: province.ProvinceName },
       });
 
-      const districts = await this.ghnClient.post<GhnDistrict[]>(
-        '/master-data/district',
-        { province_id: province.ProvinceID },
-      );
+      // GHN trả `data: null` (không phải mảng rỗng) khi tỉnh/quận đó không có quận/phường
+      // con nào — ép về [] để không crash vòng lặp bên dưới.
+      const districts =
+        (await this.ghnClient.post<GhnDistrict[] | null>(
+          '/master-data/district',
+          { province_id: province.ProvinceID },
+        )) ?? [];
 
       for (const district of districts) {
         const savedDistrict = await this.prisma.district.upsert({
@@ -103,10 +106,10 @@ export class LocationsService {
         });
         districtCount += 1;
 
-        const wards = await this.ghnClient.post<GhnWard[]>(
-          '/master-data/ward',
-          { district_id: district.DistrictID },
-        );
+        const wards =
+          (await this.ghnClient.post<GhnWard[] | null>('/master-data/ward', {
+            district_id: district.DistrictID,
+          })) ?? [];
 
         for (const ward of wards) {
           await this.prisma.ward.upsert({
