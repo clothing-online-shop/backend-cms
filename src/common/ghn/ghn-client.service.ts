@@ -57,7 +57,12 @@ export class GhnClient {
     });
 
     if (!response.ok) {
-      this.logger.error(`GHN API lỗi ${response.status}: ${method} ${path}`);
+      // Log nguyên văn body lỗi GHN trả về (server-side only, không lộ ra response cho
+      // client) — nếu không log lại thì mất luôn manh mối khi GHN đổi API/trả lỗi mới.
+      const errorBody = await response.text().catch(() => '');
+      this.logger.error(
+        `GHN API lỗi ${response.status}: ${method} ${path} — ${errorBody}`,
+      );
       throw new InternalServerErrorException('Không gọi được API GHN.');
     }
 

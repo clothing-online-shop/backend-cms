@@ -109,7 +109,19 @@ export class LocationsService {
         return districts;
       },
     );
-    const allDistricts = districtsByProvince.flat();
+    // ProvinceID của từng district lẽ ra luôn khớp 1 tỉnh vừa lưu ở trên (vì districts được
+    // lấy đúng theo province_id của các tỉnh đó), nhưng đây là dữ liệu từ API ngoài (GHN) —
+    // không giả định chắc chắn khớp. Lookup miss thì bỏ qua + log thay vì crash cả API bằng
+    // lỗi Prisma khó hiểu (provinceId: undefined) sau khi đã tốn hết các lượt gọi GHN trước đó.
+    const allDistricts = districtsByProvince.flat().filter((district) => {
+      const matched = provinceIdByGhnId.has(district.ProvinceID);
+      if (!matched) {
+        this.logger.warn(
+          `Bỏ qua quận/huyện "${district.DistrictName}" (ID ${district.DistrictID}) — ProvinceID ${district.ProvinceID} không khớp tỉnh nào vừa đồng bộ.`,
+        );
+      }
+      return matched;
+    });
 
     const savedDistricts = await mapWithConcurrency(
       allDistricts,
@@ -118,8 +130,6 @@ export class LocationsService {
         this.prisma.district.upsert({
           where: { ghnId: district.DistrictID },
           create: {
-            // ProvinceID luôn khớp 1 tỉnh vừa lưu ở trên vì districts được lấy đúng theo
-            // province_id của các tỉnh đó — không cần fallback cho trường hợp không khớp.
             ghnId: district.DistrictID,
             provinceId: provinceIdByGhnId.get(district.ProvinceID)!,
             name: district.DistrictName,
@@ -142,7 +152,15 @@ export class LocationsService {
           district_id: district.DistrictID,
         })) ?? [],
     );
-    const allWards = wardsByDistrict.flat();
+    const allWards = wardsByDistrict.flat().filter((ward) => {
+      const matched = districtIdByGhnId.has(ward.DistrictID);
+      if (!matched) {
+        this.logger.warn(
+          `Bỏ qua phường/xã "${ward.WardName}" (mã ${ward.WardCode}) — DistrictID ${ward.DistrictID} không khớp quận/huyện nào vừa đồng bộ.`,
+        );
+      }
+      return matched;
+    });
 
     await mapWithConcurrency(allWards, this.CONCURRENCY, (ward) =>
       this.prisma.ward.upsert({
