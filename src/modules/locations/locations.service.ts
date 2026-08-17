@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { GhnClient } from '../../common/ghn/ghn-client.service';
+import { mapWithConcurrency } from '../../common/utils/concurrency.util';
 
 interface GhnProvince {
   ProvinceID: number;
@@ -28,6 +29,12 @@ export interface SyncResult {
 @Injectable()
 export class LocationsService {
   private readonly logger = new Logger(LocationsService.name);
+
+  // GHN không công bố rate limit cứng cho master-data — chạy song song có giới hạn
+  // (worker pool, xem mapWithConcurrency) thay vì tuần tự từng request như trước (mất vài
+  // phút vì gọi ~800 request GHN nối tiếp nhau). Test thực tế với CONCURRENCY=5 trên
+  // ~63 tỉnh/~700 quận/~11000 phường không bị 429.
+  private readonly CONCURRENCY = 5;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -64,76 +71,98 @@ export class LocationsService {
     });
   }
 
-  // Chạy TUẦN TỰ theo từng tỉnh → từng quận (không Promise.all song song) — tôn trọng
-  // rate limit của GHN, chấp nhận việc đồng bộ toàn quốc (~63 tỉnh, ~700 quận, ~11000
-  // phường) có thể mất vài phút. Đây là thao tác Admin chủ động bấm, không nằm trong luồng
-  // người dùng cuối nên chấp nhận block request tới khi xong, không cần hàng đợi/job nền.
+  // Đây là thao tác Admin chủ động bấm, không nằm trong luồng người dùng cuối nên chấp
+  // nhận block request tới khi xong, không cần hàng đợi/job nền.
   async syncFromGhn(): Promise<SyncResult> {
     const provinces = await this.ghnClient.get<GhnProvince[]>(
       '/master-data/province',
     );
 
-    let districtCount = 0;
-    let wardCount = 0;
+    const savedProvinces = await mapWithConcurrency(
+      provinces,
+      this.CONCURRENCY,
+      (province) =>
+        this.prisma.province.upsert({
+          where: { ghnId: province.ProvinceID },
+          create: { ghnId: province.ProvinceID, name: province.ProvinceName },
+          update: { name: province.ProvinceName },
+        }),
+    );
+    const provinceIdByGhnId = new Map(
+      savedProvinces.map((p) => [p.ghnId, p.id]),
+    );
 
-    for (const province of provinces) {
-      const savedProvince = await this.prisma.province.upsert({
-        where: { ghnId: province.ProvinceID },
-        create: { ghnId: province.ProvinceID, name: province.ProvinceName },
-        update: { name: province.ProvinceName },
-      });
+    // GHN trả `data: null` (không phải mảng rỗng) khi tỉnh đó không có quận con nào —
+    // ép về [] để không crash bước gộp bên dưới.
+    const districtsByProvince = await mapWithConcurrency(
+      provinces,
+      this.CONCURRENCY,
+      async (province) => {
+        const districts =
+          (await this.ghnClient.post<GhnDistrict[] | null>(
+            '/master-data/district',
+            { province_id: province.ProvinceID },
+          )) ?? [];
+        this.logger.log(
+          `Tỉnh "${province.ProvinceName}": ${districts.length} quận/huyện`,
+        );
+        return districts;
+      },
+    );
+    const allDistricts = districtsByProvince.flat();
 
-      // GHN trả `data: null` (không phải mảng rỗng) khi tỉnh/quận đó không có quận/phường
-      // con nào — ép về [] để không crash vòng lặp bên dưới.
-      const districts =
-        (await this.ghnClient.post<GhnDistrict[] | null>(
-          '/master-data/district',
-          { province_id: province.ProvinceID },
-        )) ?? [];
-
-      for (const district of districts) {
-        const savedDistrict = await this.prisma.district.upsert({
+    const savedDistricts = await mapWithConcurrency(
+      allDistricts,
+      this.CONCURRENCY,
+      (district) =>
+        this.prisma.district.upsert({
           where: { ghnId: district.DistrictID },
           create: {
+            // ProvinceID luôn khớp 1 tỉnh vừa lưu ở trên vì districts được lấy đúng theo
+            // province_id của các tỉnh đó — không cần fallback cho trường hợp không khớp.
             ghnId: district.DistrictID,
-            provinceId: savedProvince.id,
+            provinceId: provinceIdByGhnId.get(district.ProvinceID)!,
             name: district.DistrictName,
           },
           update: {
             name: district.DistrictName,
-            provinceId: savedProvince.id,
+            provinceId: provinceIdByGhnId.get(district.ProvinceID)!,
           },
-        });
-        districtCount += 1;
+        }),
+    );
+    const districtIdByGhnId = new Map(
+      savedDistricts.map((d) => [d.ghnId, d.id]),
+    );
 
-        const wards =
-          (await this.ghnClient.post<GhnWard[] | null>('/master-data/ward', {
-            district_id: district.DistrictID,
-          })) ?? [];
+    const wardsByDistrict = await mapWithConcurrency(
+      allDistricts,
+      this.CONCURRENCY,
+      async (district) =>
+        (await this.ghnClient.post<GhnWard[] | null>('/master-data/ward', {
+          district_id: district.DistrictID,
+        })) ?? [],
+    );
+    const allWards = wardsByDistrict.flat();
 
-        for (const ward of wards) {
-          await this.prisma.ward.upsert({
-            where: { ghnCode: ward.WardCode },
-            create: {
-              ghnCode: ward.WardCode,
-              districtId: savedDistrict.id,
-              name: ward.WardName,
-            },
-            update: { name: ward.WardName, districtId: savedDistrict.id },
-          });
-          wardCount += 1;
-        }
-      }
-
-      this.logger.log(
-        `Đã đồng bộ tỉnh "${province.ProvinceName}" (${districts.length} quận/huyện)`,
-      );
-    }
+    await mapWithConcurrency(allWards, this.CONCURRENCY, (ward) =>
+      this.prisma.ward.upsert({
+        where: { ghnCode: ward.WardCode },
+        create: {
+          ghnCode: ward.WardCode,
+          districtId: districtIdByGhnId.get(ward.DistrictID)!,
+          name: ward.WardName,
+        },
+        update: {
+          name: ward.WardName,
+          districtId: districtIdByGhnId.get(ward.DistrictID)!,
+        },
+      }),
+    );
 
     return {
       provinces: provinces.length,
-      districts: districtCount,
-      wards: wardCount,
+      districts: allDistricts.length,
+      wards: allWards.length,
     };
   }
 }
