@@ -17,6 +17,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { CmsModule } from './modules/cms/cms.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { BannersModule } from './modules/banners/banners.module';
+import { LocationsModule } from './modules/locations/locations.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { BannersModule } from './modules/banners/banners.module';
     CmsModule,
     UploadModule,
     BannersModule,
+    LocationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

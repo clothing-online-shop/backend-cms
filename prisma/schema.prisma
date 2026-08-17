@@ -132,6 +132,45 @@ model Address {
   @@map("addresses")
 }
 
+// Danh mục hành chính Tỉnh/Quận/Phường — đồng bộ (không tự nhập tay) từ API master-data
+// của GHN qua LocationsService.syncFromGhn() (src/modules/locations), giữ nguyên ID/code
+// gốc của GHN (ghnId là số, ghnCode của Ward là chuỗi — đúng kiểu GHN trả về) để dùng lại
+// thẳng khi tạo đơn vận chuyển thật với GHN sau này, không phải tra cứu lại.
+model Province {
+  id    String @id @default(cuid())
+  ghnId Int    @unique
+  name  String
+
+  districts District[]
+
+  @@map("provinces")
+}
+
+model District {
+  id         String @id @default(cuid())
+  ghnId      Int    @unique
+  provinceId String
+  name       String
+
+  province Province @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+  wards    Ward[]
+
+  @@index([provinceId])
+  @@map("districts")
+}
+
+model Ward {
+  id         String @id @default(cuid())
+  ghnCode    String @unique
+  districtId String
+  name       String
+
+  district District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+
+  @@index([districtId])
+  @@map("wards")
+}
+
 model Category {
   id            String     @id @default(cuid())
   name          String
