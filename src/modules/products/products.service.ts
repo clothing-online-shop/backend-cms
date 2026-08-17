@@ -289,6 +289,10 @@ export class ProductsService {
     await this.assertCategoryExists(dto.categoryId);
     this.assertValidSalePrice(dto.salePrice, dto.basePrice);
     assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
+    // @IsOptional() ở DTO bỏ qua validate khi client gửi null (không chỉ undefined) — coi
+    // null như undefined ở đây, tránh ghi thẳng null vào cột isFeatured (NOT NULL) bên dưới.
+    const isFeatured = dto.isFeatured ?? undefined;
+    this.assertActiveIfFeatured(dto.status ?? ProductStatus.DRAFT, isFeatured);
     // Dedupe trước khi ghi — client gửi trùng id (double-submit, gọi API thô qua Swagger...)
     // sẽ đụng @@unique([collectionId, productId]) và ném P2002 thô nếu không lọc trước.
     const collectionIds = dto.collectionIds?.length
@@ -348,7 +352,7 @@ export class ProductsService {
           imagePublicIds: dto.imagePublicIds ?? [],
           metaTitle: dto.metaTitle,
           metaDescription: dto.metaDescription,
-          isFeatured: dto.isFeatured ?? false,
+          isFeatured: isFeatured ?? false,
           variants: { create: variantsData },
           collections: collectionIds?.length
             ? {
@@ -421,6 +425,30 @@ export class ProductsService {
     this.assertValidSalePrice(effectiveSalePrice, basePrice);
     assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
 
+    // existing.status là number thô từ Prisma (status lưu Int, xem product-status.enum.ts)
+    // — khai kiểu biến là ProductStatus để so sánh cùng kiểu enum với dto.status/ProductStatus.*.
+    const existingStatus: ProductStatus = existing.status;
+    const effectiveStatus: ProductStatus = dto.status ?? existingStatus;
+    // @IsOptional() ở DTO bỏ qua validate khi client gửi null (không chỉ undefined) — coi
+    // null như undefined ở đây, tránh ghi thẳng null vào cột isFeatured (NOT NULL) bên dưới.
+    const isFeatured = dto.isFeatured ?? undefined;
+    this.assertActiveIfFeatured(effectiveStatus, isFeatured);
+    // Đổi status RA KHỎI ACTIVE thật sự trong request này (đang ACTIVE trước đó — existing.status
+    // — và dto.status chuyển sang khác ACTIVE, vd khoá nhanh 1 click ở ProductList.tsx) mà
+    // không đụng tới isFeatured — tự gỡ cờ nếu sản phẩm đang nổi bật, khớp lý do ở
+    // assertActiveIfFeatured() (cờ chỉ có ý nghĩa với sản phẩm đang mở bán). Cố tình so với
+    // existing.status (không phải chỉ "dto.status khác ACTIVE") để phân biệt với case gửi
+    // lại đúng status cũ không đổi gì (vd resend nguyên form) trên 1 sản phẩm INACTIVE/DRAFT
+    // sẵn có isFeatured=true từ trước (dữ liệu cũ trước khi có rule này) — không tự ý đổi dữ
+    // liệu khi request không thật sự transition; assertActiveIfFeatured() ở trên đã chặn
+    // cứng nếu request đó có chủ động gửi lại isFeatured: true.
+    const isLeavingActive =
+      dto.status !== undefined &&
+      dto.status !== ProductStatus.ACTIVE &&
+      existingStatus === ProductStatus.ACTIVE;
+    const nextIsFeatured =
+      isLeavingActive && isFeatured === undefined ? false : isFeatured;
+
     await this.prisma.$transaction(async (tx) => {
       // updateMany (không phải update) + check isDelete:false ngay trong where — chặn race
       // giữa lúc đọc existing ở trên và lúc ghi ở đây: nếu sản phẩm bị xóa mềm bởi 1
@@ -446,7 +474,7 @@ export class ProductsService {
           imagePublicIds: dto.imagePublicIds,
           metaTitle: dto.metaTitle,
           metaDescription: dto.metaDescription,
-          isFeatured: dto.isFeatured,
+          isFeatured: nextIsFeatured,
         },
       });
       if (count === 0) {
@@ -738,22 +766,44 @@ export class ProductsService {
     }
   }
 
-  // Chỉ sản phẩm ĐANG MỞ BÁN (ACTIVE) mới được gán vào bộ sưu tập — bộ sưu tập dùng để
-  // quảng bá/trưng bày trên storefront, sản phẩm nháp (DRAFT)/ngừng kinh doanh (INACTIVE)
-  // không có lý do xuất hiện trong đó. Chỉ chặn khi thực sự có collection MỚI thêm vào
-  // (newlyAddedCollectionIds rỗng thì bỏ qua, khớp assertNoEndedCollections()).
+  // Nhiều rule cùng hình dạng "chỉ sản phẩm ĐANG MỞ BÁN (ACTIVE) mới được làm X" (gán bộ
+  // sưu tập, gắn cờ nổi bật — cả 2 đều dùng để trưng bày trên storefront, sản phẩm nháp/
+  // ngừng kinh doanh không có lý do xuất hiện) — gom điều kiện + throw chung 1 chỗ, rule
+  // "chỉ ACTIVE mới được..." tiếp theo chỉ cần gọi lại, không viết riêng từng hàm.
+  private assertActiveOrThrow(
+    productStatus: ProductStatus,
+    condition: boolean,
+    message: string,
+  ): void {
+    if (condition && productStatus !== ProductStatus.ACTIVE) {
+      throw new BadRequestException(message);
+    }
+  }
+
+  // Chỉ chặn khi thực sự có collection MỚI thêm vào (newlyAddedCollectionIds rỗng thì bỏ
+  // qua, khớp assertNoEndedCollections()).
   private assertActiveIfAddingCollections(
     productStatus: ProductStatus,
     newlyAddedCollectionIds: string[],
   ): void {
-    if (
-      newlyAddedCollectionIds.length > 0 &&
-      productStatus !== ProductStatus.ACTIVE
-    ) {
-      throw new BadRequestException(
-        'Chỉ có thể gán sản phẩm đang mở bán vào bộ sưu tập.',
-      );
-    }
+    this.assertActiveOrThrow(
+      productStatus,
+      newlyAddedCollectionIds.length > 0,
+      'Chỉ có thể gán sản phẩm đang mở bán vào bộ sưu tập.',
+    );
+  }
+
+  // Chỉ chặn khi client thực sự MUỐN bật cờ (isFeatured === true) — bỏ qua khi client
+  // không đụng tới field này hoặc đang tắt cờ.
+  private assertActiveIfFeatured(
+    productStatus: ProductStatus,
+    isFeatured: boolean | undefined,
+  ): void {
+    this.assertActiveOrThrow(
+      productStatus,
+      Boolean(isFeatured),
+      'Chỉ có thể gắn cờ nổi bật cho sản phẩm đang mở bán.',
+    );
   }
 
   private async assertCategoryExists(id: string): Promise<void> {
