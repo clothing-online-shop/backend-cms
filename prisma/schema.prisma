@@ -282,6 +282,7 @@ model ProductVariant {
   sku           String  @unique
   price         Decimal @db.Decimal(12, 2)
   stockQuantity Int     @default(0)
+  weight        Int? // gram — dùng tính phí ship GHN (backend-user), null = chưa nhập
   imageUrl      String?
 
   product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)

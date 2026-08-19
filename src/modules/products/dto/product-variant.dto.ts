@@ -26,6 +26,11 @@ export class CreateProductVariantDto {
   @Min(0)
   stockQuantity?: number;
 
+  @ApiProperty({ description: 'Khối lượng (gram) — dùng tính phí ship GHN' })
+  @IsInt()
+  @Min(1)
+  weight?: number;
+
   // string | null (không chỉ string) để UpdateProductVariantDto (kế thừa bên dưới) phân
   // biệt được "không đổi" (bỏ trống field) với "gỡ ảnh" (gửi null) — xem update-product.dto.ts
   // đã áp dụng cùng convention cho brandId/salePrice.
