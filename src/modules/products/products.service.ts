@@ -329,6 +329,7 @@ export class ProductsService {
         sku,
         price: variant.price ?? dto.basePrice,
         stockQuantity: variant.stockQuantity ?? 0,
+        weight: variant.weight,
         imageUrl: variant.imageUrl,
       });
     }
@@ -667,6 +668,7 @@ export class ProductsService {
             color: item.color,
             sku,
             price: item.price ?? basePrice,
+            weight: item.weight ?? current.weight,
             imageUrl: item.imageUrl,
           },
         });
@@ -688,6 +690,7 @@ export class ProductsService {
             sku,
             price: item.price ?? basePrice,
             stockQuantity: item.stockQuantity ?? 0,
+            weight: item.weight,
             imageUrl: item.imageUrl,
           },
         });
@@ -1004,6 +1007,7 @@ function toVariantDto(variant: ProductVariant) {
     sku: variant.sku,
     price: variant.price.toNumber(),
     stockQuantity: variant.stockQuantity,
+    weight: variant.weight,
     imageUrl: variant.imageUrl,
   };
 }

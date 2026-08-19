@@ -120,6 +120,7 @@ async function seedProduct(
           sku: generateSlug(`${slug}-${size}-${color}`).toUpperCase(),
           price: Math.max(seed.basePrice + randomInt(-10, 10) * 1000, 10000),
           stockQuantity: randomInt(0, 60),
+          weight: randomInt(200, 1200),
           imageUrl: thumbnail,
         })),
       },
