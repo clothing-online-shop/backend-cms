@@ -120,15 +120,21 @@ model Address {
   userId       String
   receiverName String
   phone        String
-  province     String
-  district     String
-  ward         String
+  provinceId   String
+  districtId   String
+  wardId       String
   detail       String
   isDefault    Boolean @default(false)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  province Province @relation(fields: [provinceId], references: [id])
+  district District @relation(fields: [districtId], references: [id])
+  ward     Ward     @relation(fields: [wardId], references: [id])
 
   @@index([userId])
+  @@index([provinceId])
+  @@index([districtId])
+  @@index([wardId])
   @@map("addresses")
 }
 
@@ -142,6 +148,7 @@ model Province {
   name  String
 
   districts District[]
+  addresses Address[]
 
   @@map("provinces")
 }
@@ -152,8 +159,9 @@ model District {
   provinceId String
   name       String
 
-  province Province @relation(fields: [provinceId], references: [id], onDelete: Cascade)
-  wards    Ward[]
+  province  Province @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+  wards     Ward[]
+  addresses Address[]
 
   @@index([provinceId])
   @@map("districts")
@@ -165,7 +173,8 @@ model Ward {
   districtId String
   name       String
 
-  district District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  district  District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  addresses Address[]
 
   @@index([districtId])
   @@map("wards")
