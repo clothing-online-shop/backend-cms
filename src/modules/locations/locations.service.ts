@@ -74,9 +74,12 @@ export class LocationsService {
   // Đây là thao tác Admin chủ động bấm, không nằm trong luồng người dùng cuối nên chấp
   // nhận block request tới khi xong, không cần hàng đợi/job nền.
   async syncFromGhn(): Promise<SyncResult> {
-    const provinces = await this.ghnClient.get<GhnProvince[]>(
-      '/master-data/province',
-    );
+    // Cùng kiểu dữ liệu `data: null` như district/ward (xem comment ở dưới) — ép về [] để
+    // không crash khi GHN trả rỗng cho master-data tỉnh.
+    const provinces =
+      (await this.ghnClient.get<GhnProvince[] | null>(
+        '/master-data/province',
+      )) ?? [];
 
     const savedProvinces = await mapWithConcurrency(
       provinces,

@@ -11,7 +11,10 @@ import { UpdateBannerDto } from './dto/update-banner.dto';
 import { ListBannersQueryDto } from './dto/list-banners-query.dto';
 import { ReorderBannersDto } from './dto/reorder-banners.dto';
 import { BannerStatus } from './banner-status.enum';
-import { toDateOnly, assertDateRange } from '../../common/utils/date.util';
+import {
+  deriveDateRangeStatus,
+  assertDateRange,
+} from '../../common/utils/date.util';
 import { assertImagePublicIdAligned } from '../../common/utils/image-pairing.util';
 
 export type BannerWithStatus = Banner & { status: BannerStatus };
@@ -156,18 +159,11 @@ export class BannersService {
 }
 
 function withStatus(banner: Banner): BannerWithStatus {
-  const today = toDateOnly(new Date());
-  const start = toDateOnly(banner.startDate);
-  const end = toDateOnly(banner.endDate);
-
-  let status: BannerStatus;
-  if (today < start) {
-    status = BannerStatus.UPCOMING;
-  } else if (today > end) {
-    status = BannerStatus.ENDED;
-  } else {
-    status = BannerStatus.RUNNING;
-  }
-
-  return { ...banner, status };
+  return {
+    ...banner,
+    status: deriveDateRangeStatus(
+      banner.startDate,
+      banner.endDate,
+    ) as BannerStatus,
+  };
 }

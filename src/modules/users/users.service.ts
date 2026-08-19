@@ -9,6 +9,10 @@ import {
 import { PrismaService } from '../../config/prisma.service';
 import { toSafeUser } from '../../common/utils/safe-user.util';
 import { ListCustomersQueryDto } from './dto/list-customers-query.dto';
+import {
+  buildSkipTake,
+  buildPageMeta,
+} from '../../common/utils/pagination.util';
 
 export interface CreateUserInput {
   email: string;
@@ -68,8 +72,7 @@ export class UsersService {
       this.prisma.user.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        ...buildSkipTake(page, limit),
         include: { _count: { select: { orders: true } } },
       }),
       this.prisma.user.count({ where }),
@@ -81,12 +84,7 @@ export class UsersService {
 
     return {
       data: customers.map((c) => toCustomerListItem(c, totalSpentByUserId)),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
-      },
+      meta: buildPageMeta(total, page, limit),
     };
   }
 

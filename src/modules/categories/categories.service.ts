@@ -257,10 +257,14 @@ export class CategoriesService {
       movedIntoParents,
     );
 
+    // updateMany + isDelete:false (không phải update thường) — cùng lý do đã áp dụng ở
+    // update(): chặn race giữa lúc đọc `all` ở đầu hàm và lúc ghi ở đây, tránh "hồi sinh"
+    // sortOrder/parentId cho 1 danh mục vừa bị xóa mềm bởi request khác trong lúc admin
+    // đang kéo-thả.
     await this.prisma.$transaction(
       dto.items.map((item) =>
-        this.prisma.category.update({
-          where: { id: item.id },
+        this.prisma.category.updateMany({
+          where: { id: item.id, isDelete: false },
           data: {
             sortOrder: item.sortOrder,
             parentId: item.parentId === undefined ? undefined : item.parentId,

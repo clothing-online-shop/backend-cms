@@ -6,6 +6,10 @@ export async function mapWithConcurrency<T, R>(
   concurrency: number,
   mapper: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
+  if (concurrency < 1) {
+    throw new Error('mapWithConcurrency: concurrency phải >= 1.');
+  }
+
   const results: R[] = new Array<R>(items.length);
   let nextIndex = 0;
 

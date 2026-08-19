@@ -10,6 +10,10 @@ import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
 import { ImportStockDto } from './dto/import-stock.dto';
 import { AdjustStockDto, AdjustStockType } from './dto/adjust-stock.dto';
 import { ListStockHistoryQueryDto } from './dto/list-stock-history-query.dto';
+import {
+  buildSkipTake,
+  buildPageMeta,
+} from '../../common/utils/pagination.util';
 
 const LOW_STOCK_THRESHOLD_KEY = 'lowStockThreshold';
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
@@ -71,8 +75,7 @@ export class InventoryService {
           },
         },
         orderBy: { product: { name: 'asc' } },
-        skip: (page - 1) * limit,
-        take: limit,
+        ...buildSkipTake(page, limit),
       }),
       this.prisma.productVariant.count({ where }),
     ]);
@@ -90,12 +93,7 @@ export class InventoryService {
         productSlug: variant.product.slug,
         thumbnail: variant.product.thumbnail,
       })),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
-      },
+      meta: buildPageMeta(total, page, limit),
     };
   }
 
@@ -106,12 +104,20 @@ export class InventoryService {
   // SELECT ... FOR UPDATE khoá dòng ngay trong transaction hiện tại — transaction thứ 2
   // phải đợi transaction thứ 1 commit xong mới đọc được, lúc đó thấy đúng stockQuantity
   // mới nhất để validate.
+  // Join sang "products" để loại biến thể thuộc sản phẩm đã xóa mềm — nếu không, kho vẫn
+  // nhập/xuất/điều chỉnh được cho 1 sản phẩm mà findAll() đã ẩn khỏi danh sách (isDelete),
+  // dẫn tới StockMovement/tồn kho lệch khỏi trạng thái "đã gỡ khỏi catalog". `FOR UPDATE OF
+  // pv` chỉ khoá dòng product_variants, không khoá luôn dòng products (join chỉ để lọc).
   private async lockVariant(
     tx: Prisma.TransactionClient,
     variantId: string,
   ): Promise<{ id: string; stockQuantity: number } | null> {
     const rows = await tx.$queryRaw<{ id: string; stockQuantity: number }[]>`
-      SELECT id, "stockQuantity" FROM "product_variants" WHERE id = ${variantId} FOR UPDATE
+      SELECT pv.id, pv."stockQuantity"
+      FROM "product_variants" pv
+      JOIN "products" p ON p.id = pv."productId"
+      WHERE pv.id = ${variantId} AND p."isDelete" = false
+      FOR UPDATE OF pv
     `;
     return rows[0] ?? null;
   }
@@ -245,8 +251,7 @@ export class InventoryService {
           createdBy: { select: { fullName: true } },
         },
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        ...buildSkipTake(page, limit),
       }),
       this.prisma.stockMovement.count({ where }),
     ]);
@@ -266,12 +271,7 @@ export class InventoryService {
         productName: movement.productVariant.product.name,
         createdByName: movement.createdBy?.fullName ?? 'Hệ thống',
       })),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
-      },
+      meta: buildPageMeta(total, page, limit),
     };
   }
 }

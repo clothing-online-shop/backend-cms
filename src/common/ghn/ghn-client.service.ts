@@ -67,6 +67,15 @@ export class GhnClient {
     }
 
     const result = (await response.json()) as GhnResponse<T>;
+    if (result.code !== 200) {
+      // GHN có thể trả HTTP 200 kèm lỗi nghiệp vụ trong body (token sai, tham số không hợp
+      // lệ...) — response.ok vẫn true nên phải tự kiểm tra `code`, không thì lỗi bị nuốt và
+      // `data` (thường là null) bị coi như kết quả hợp lệ.
+      this.logger.error(
+        `GHN API trả lỗi nghiệp vụ: ${method} ${path} — code=${result.code} message=${result.message}`,
+      );
+      throw new InternalServerErrorException('Không gọi được API GHN.');
+    }
     return result.data;
   }
 }

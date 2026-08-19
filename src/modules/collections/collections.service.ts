@@ -7,14 +7,17 @@ import {
 import { Collection, Prisma } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { generateSlug } from '../../common/utils/slug.util';
-import { toDateOnly, assertDateRange } from '../../common/utils/date.util';
+import {
+  deriveDateRangeStatus,
+  assertDateRange,
+  toDateOnly,
+} from '../../common/utils/date.util';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { UpdateCollectionDto } from './dto/update-collection.dto';
 import { ListCollectionsQueryDto } from './dto/list-collections-query.dto';
 import { AssignProductsDto } from './dto/assign-products.dto';
 import { CollectionStatus } from './collection-status.enum';
 import { ErrorCode } from '../../common/constants/error-codes';
-import { isCollectionEnded } from './collection-status.util';
 import { ProductStatus } from '../products/product-status.enum';
 import { diffNewlyAdded } from '../../common/utils/diff.util';
 
@@ -377,21 +380,12 @@ function withStatus(
     }[];
   },
 ): CollectionWithStatus {
-  const today = toDateOnly(new Date());
-  const start = toDateOnly(collection.startDate);
-
-  let status: CollectionStatus;
-  if (today < start) {
-    status = CollectionStatus.UPCOMING;
-  } else if (isCollectionEnded(collection.endDate)) {
-    status = CollectionStatus.ENDED;
-  } else {
-    status = CollectionStatus.RUNNING;
-  }
-
   return {
     ...collection,
-    status,
+    status: deriveDateRangeStatus(
+      collection.startDate,
+      collection.endDate,
+    ) as CollectionStatus,
     products: (collection.products ?? []).map((cp) => cp.product),
   };
 }

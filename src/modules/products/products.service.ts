@@ -26,7 +26,11 @@ import {
   ProductSort,
 } from './dto/list-products-query.dto';
 import { ErrorCode } from '../../common/constants/error-codes';
-import { isCollectionEnded } from '../collections/collection-status.util';
+import { isDateRangeEnded } from '../../common/utils/date.util';
+import {
+  buildSkipTake,
+  buildPageMeta,
+} from '../../common/utils/pagination.util';
 
 type Db = Prisma.TransactionClient;
 type ProductWithStockVariants = Product & {
@@ -63,13 +67,13 @@ export class ProductsService {
       // danh mục cha — khớp thẳng, không tự mở rộng cây con như `category` bên dưới.
       const ids = query.categoryIds.split(',').filter(Boolean);
       if (ids.length === 0) {
-        return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+        return { data: [], meta: buildPageMeta(0, page, limit) };
       }
       where.categoryId = { in: ids };
     } else if (query.category) {
       const categoryIds = await this.resolveCategoryIds(query.category);
       if (categoryIds.length === 0) {
-        return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+        return { data: [], meta: buildPageMeta(0, page, limit) };
       }
       where.categoryId = { in: categoryIds };
     }
@@ -123,8 +127,7 @@ export class ProductsService {
       this.prisma.product.findMany({
         where,
         orderBy: resolveOrderBy(query.sort),
-        skip: (page - 1) * limit,
-        take: limit,
+        ...buildSkipTake(page, limit),
         include: {
           variants: { select: { stockQuantity: true } },
           collections: { include: { collection: true } },
@@ -135,12 +138,7 @@ export class ProductsService {
 
     return {
       data: products.map(toListItem),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
-      },
+      meta: buildPageMeta(total, page, limit),
     };
   }
 
@@ -174,15 +172,10 @@ export class ProductsService {
     });
 
     const total = products.length;
-    const start = (page - 1) * limit;
+    const { skip, take } = buildSkipTake(page, limit);
     return {
-      data: products.slice(start, start + limit).map(toListItem),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
-      },
+      data: products.slice(skip, skip + take).map(toListItem),
+      meta: buildPageMeta(total, page, limit),
     };
   }
 
@@ -610,7 +603,7 @@ export class ProductsService {
     if (!collection || collection.isDelete) {
       throw new NotFoundException('Không tìm thấy bộ sưu tập');
     }
-    if (isCollectionEnded(collection.endDate)) {
+    if (isDateRangeEnded(collection.endDate)) {
       throw new BadRequestException(
         'Bộ sưu tập đã kết thúc — không thể gỡ sản phẩm khỏi bộ sưu tập đã kết thúc.',
       );
@@ -755,7 +748,7 @@ export class ProductsService {
     collectionIdsToCheck: string[],
   ): void {
     const hasEnded = collectionIdsToCheck.some((id) =>
-      isCollectionEnded(endDateByCollectionId.get(id)!),
+      isDateRangeEnded(endDateByCollectionId.get(id)!),
     );
     if (hasEnded) {
       throw new ConflictException({
