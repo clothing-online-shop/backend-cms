@@ -341,3 +341,8 @@ git commit -m "feat(addresses): switch Address to FK references into Province/Di
 ## Handoff note for `backend-user`
 
 Once both tasks are committed on `feature/ghn-shipping-schema`, `backend-user`'s plan (`2026-08-19-ghn-shipping-fee.md`) can bump its `vendor/backend-cms` submodule to this branch's HEAD commit to pick up both schema changes.
+
+**Hard deployment constraint — read before deploying anywhere beyond local dev:**
+
+- `convert_address_to_location_fk` adds 3 `NOT NULL` FK columns to `addresses` with no default. It will fail outright (and, per this repo's `start:prod` script, block the app from booting) against any `addresses` table that already has rows. The local dev DB's 22 pre-existing rows were wiped with explicit sign-off before this migration was applied here — **that decision does not transfer to any other environment.** Before applying this migration anywhere else (staging, shared DB, prod), first confirm whether `addresses` has rows there, and if so, get an explicit decision on how to handle them (wipe vs. some other resolution) before running `prisma migrate deploy` — do not let it run unattended against an environment that hasn't been checked.
+- `backend-cms` and `backend-user` share one physical Postgres database (see `backend-user`'s README). `backend-user`'s `addresses` module still writes the OLD `province`/`district`/`ward` text columns until its own plan (`2026-08-19-ghn-shipping-fee.md`, Task 3) lands. **This migration and `backend-user`'s Task 3 must be deployed together, never independently** — applying this migration to a shared database ahead of `backend-user`'s update will break `backend-user`'s address create/update/list endpoints immediately (`42703 column "province" does not exist`).
