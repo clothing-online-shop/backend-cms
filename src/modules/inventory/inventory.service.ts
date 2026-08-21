@@ -156,7 +156,10 @@ export class InventoryService {
     return this.prisma.$transaction(async (tx) => {
       const variant = await this.lockVariant(tx, variantId);
       if (!variant) {
-        throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
+        throw new NotFoundException({
+          message: 'Không tìm thấy biến thể sản phẩm.',
+          code: ErrorCode.INVENTORY_VARIANT_NOT_FOUND,
+        });
       }
 
       await this.applyMovement(tx, {
@@ -178,7 +181,10 @@ export class InventoryService {
     return this.prisma.$transaction(async (tx) => {
       const variant = await this.lockVariant(tx, variantId);
       if (!variant) {
-        throw new NotFoundException('Không tìm thấy biến thể sản phẩm.');
+        throw new NotFoundException({
+          message: 'Không tìm thấy biến thể sản phẩm.',
+          code: ErrorCode.INVENTORY_VARIANT_NOT_FOUND,
+        });
       }
 
       let delta: number;

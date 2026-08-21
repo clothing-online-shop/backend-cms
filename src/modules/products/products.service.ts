@@ -232,7 +232,10 @@ export class ProductsService {
     });
 
     if (!product || product.isDelete) {
-      throw new NotFoundException('Không tìm thấy sản phẩm');
+      throw new NotFoundException({
+        message: 'Không tìm thấy sản phẩm',
+        code: ErrorCode.PRODUCT_NOT_FOUND,
+      });
     }
 
     const relatedProducts = await this.prisma.product.findMany({
@@ -392,12 +395,18 @@ export class ProductsService {
     // Đã xóa mềm coi như không tồn tại — không cho sửa 1 sản phẩm đã xóa, khớp
     // assertCategoryExists() ở categories.service.ts / findExisting() ở collections.service.ts.
     if (!existing || existing.isDelete) {
-      throw new NotFoundException('Không tìm thấy sản phẩm');
+      throw new NotFoundException({
+        message: 'Không tìm thấy sản phẩm',
+        code: ErrorCode.PRODUCT_NOT_FOUND,
+      });
     }
 
     if (dto.categoryId !== undefined) {
       if (!dto.categoryId) {
-        throw new BadRequestException('categoryId không được để trống');
+        throw new BadRequestException({
+          message: 'categoryId không được để trống',
+          code: ErrorCode.PRODUCT_CATEGORY_ID_REQUIRED,
+        });
       }
       await this.assertCategoryExists(dto.categoryId);
     }
@@ -472,7 +481,10 @@ export class ProductsService {
         },
       });
       if (count === 0) {
-        throw new NotFoundException('Không tìm thấy sản phẩm');
+        throw new NotFoundException({
+          message: 'Không tìm thấy sản phẩm',
+          code: ErrorCode.PRODUCT_NOT_FOUND,
+        });
       }
 
       // Đổi status sang DRAFT/INACTIVE — tự gỡ khỏi mọi bộ sưu tập đang gán, khớp lý do
@@ -514,7 +526,10 @@ export class ProductsService {
   async remove(id: string): Promise<void> {
     const existing = await this.prisma.product.findUnique({ where: { id } });
     if (!existing || existing.isDelete) {
-      throw new NotFoundException('Không tìm thấy sản phẩm');
+      throw new NotFoundException({
+        message: 'Không tìm thấy sản phẩm',
+        code: ErrorCode.PRODUCT_NOT_FOUND,
+      });
     }
 
     // Xóa mềm — trước đây xóa cứng nhưng variant đã dùng trong đơn hàng/giỏ hàng thì bị
@@ -544,7 +559,10 @@ export class ProductsService {
       where: { id: productId },
     });
     if (!product || product.isDelete) {
-      throw new NotFoundException('Không tìm thấy sản phẩm');
+      throw new NotFoundException({
+        message: 'Không tìm thấy sản phẩm',
+        code: ErrorCode.PRODUCT_NOT_FOUND,
+      });
     }
     // Dedupe trước khi ghi — client gửi trùng id sẽ đụng @@unique([collectionId,
     // productId]) và ném P2002 thô nếu không lọc trước.
@@ -602,7 +620,10 @@ export class ProductsService {
       select: { endDate: true, isDelete: true },
     });
     if (!collection || collection.isDelete) {
-      throw new NotFoundException('Không tìm thấy bộ sưu tập');
+      throw new NotFoundException({
+        message: 'Không tìm thấy bộ sưu tập',
+        code: ErrorCode.COLLECTION_NOT_FOUND,
+      });
     }
     if (isDateRangeEnded(collection.endDate)) {
       throw new BadRequestException({
@@ -639,7 +660,10 @@ export class ProductsService {
     for (const item of incoming) {
       if (item.id) {
         if (!existingIds.has(item.id)) {
-          throw new NotFoundException(`Không tìm thấy biến thể ${item.id}`);
+          throw new NotFoundException({
+            message: `Không tìm thấy biến thể ${item.id}`,
+            code: ErrorCode.PRODUCT_VARIANT_NOT_FOUND,
+          });
         }
         keepIds.add(item.id);
         const current = existingVariants.find((v) => v.id === item.id)!;
@@ -722,9 +746,10 @@ export class ProductsService {
           // có lịch sử nhập/xuất/điều chỉnh kho (StockMovement giờ Restrict, không còn
           // Cascade — xem schema.prisma) — không phân biệt cụ thể ràng buộc nào để tránh
           // phải truy vấn thêm, gộp chung 1 thông báo bao quát cả 2 trường hợp.
-          throw new ConflictException(
-            `Không thể xóa biến thể ${variant.sku} vì đã phát sinh giao dịch liên quan (đơn hàng/giỏ hàng hoặc lịch sử nhập/xuất kho).`,
-          );
+          throw new ConflictException({
+            message: `Không thể xóa biến thể ${variant.sku} vì đã phát sinh giao dịch liên quan (đơn hàng/giỏ hàng hoặc lịch sử nhập/xuất kho).`,
+            code: ErrorCode.PRODUCT_VARIANT_DELETE_BLOCKED_IN_USE,
+          });
         }
         throw err;
       }
@@ -744,9 +769,10 @@ export class ProductsService {
       select: { id: true, endDate: true },
     });
     if (collections.length !== uniqueIds.size) {
-      throw new BadRequestException(
-        'Có bộ sưu tập không tồn tại trong danh sách gán',
-      );
+      throw new BadRequestException({
+        message: 'Có bộ sưu tập không tồn tại trong danh sách gán',
+        code: ErrorCode.PRODUCT_COLLECTION_NOT_FOUND,
+      });
     }
     return new Map(collections.map((c) => [c.id, c.endDate]));
   }
@@ -775,9 +801,10 @@ export class ProductsService {
     productStatus: ProductStatus,
     condition: boolean,
     message: string,
+    code: ErrorCode,
   ): void {
     if (condition && productStatus !== ProductStatus.ACTIVE) {
-      throw new BadRequestException(message);
+      throw new BadRequestException({ message, code });
     }
   }
 
@@ -790,7 +817,10 @@ export class ProductsService {
     this.assertActiveOrThrow(
       productStatus,
       newlyAddedCollectionIds.length > 0,
+      // Message giống hệt assertOnlyActiveProducts() ở collections.service.ts — 2 chiều
+      // của cùng 1 rule (gán qua product hay qua collection), dùng chung 1 code.
       'Chỉ có thể gán sản phẩm đang mở bán vào bộ sưu tập.',
+      ErrorCode.COLLECTION_ASSIGN_BLOCKED_PRODUCT_INACTIVE,
     );
   }
 
@@ -804,13 +834,17 @@ export class ProductsService {
       productStatus,
       Boolean(isFeatured),
       'Chỉ có thể gắn cờ nổi bật cho sản phẩm đang mở bán.',
+      ErrorCode.PRODUCT_FEATURED_BLOCKED_NOT_ACTIVE,
     );
   }
 
   private async assertCategoryExists(id: string): Promise<void> {
     const category = await this.prisma.category.findUnique({ where: { id } });
     if (!category || category.isDelete) {
-      throw new BadRequestException('Danh mục không tồn tại');
+      throw new BadRequestException({
+        message: 'Danh mục không tồn tại',
+        code: ErrorCode.PRODUCT_CATEGORY_NOT_FOUND,
+      });
     }
   }
 
@@ -966,9 +1000,10 @@ function assertNoDuplicateVariants(
   for (const variant of variants) {
     const key = `${variant.size.trim().toLowerCase()}|${variant.color.trim().toLowerCase()}`;
     if (seen.has(key)) {
-      throw new BadRequestException(
-        `Biến thể trùng lặp: size "${variant.size}" + màu "${variant.color}"`,
-      );
+      throw new BadRequestException({
+        message: `Biến thể trùng lặp: size "${variant.size}" + màu "${variant.color}"`,
+        code: ErrorCode.PRODUCT_VARIANT_DUPLICATE,
+      });
     }
     seen.add(key);
   }

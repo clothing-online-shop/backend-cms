@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { ErrorCode } from '../constants/error-codes';
 
 // So sánh theo ngày lịch (bỏ qua giờ) — dùng chung giữa nhiều module có khái niệm
 // "ngày bắt đầu/kết thúc" (Collection, Banner...), để không lệch nhau nếu quy tắc
@@ -11,7 +12,10 @@ export function toDateOnly(date: Date): number {
 // trước đây mỗi module tự viết 1 bản y hệt.
 export function assertDateRange(startDate: string, endDate: string): void {
   if (new Date(endDate) < new Date(startDate)) {
-    throw new BadRequestException('Ngày kết thúc phải sau ngày bắt đầu.');
+    throw new BadRequestException({
+      message: 'Ngày kết thúc phải sau ngày bắt đầu.',
+      code: ErrorCode.COMMON_DATE_RANGE_INVALID,
+    });
   }
 }
 

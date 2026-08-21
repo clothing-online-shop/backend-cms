@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { GhnClient } from '../../common/ghn/ghn-client.service';
 import { mapWithConcurrency } from '../../common/utils/concurrency.util';
+import { ErrorCode } from '../../common/constants/error-codes';
 
 interface GhnProvince {
   ProvinceID: number;
@@ -50,7 +51,10 @@ export class LocationsService {
       where: { id: provinceId },
     });
     if (!province) {
-      throw new NotFoundException('Không tìm thấy tỉnh/thành phố.');
+      throw new NotFoundException({
+        message: 'Không tìm thấy tỉnh/thành phố.',
+        code: ErrorCode.LOCATION_PROVINCE_NOT_FOUND,
+      });
     }
     return this.prisma.district.findMany({
       where: { provinceId },
@@ -63,7 +67,10 @@ export class LocationsService {
       where: { id: districtId },
     });
     if (!district) {
-      throw new NotFoundException('Không tìm thấy quận/huyện.');
+      throw new NotFoundException({
+        message: 'Không tìm thấy quận/huyện.',
+        code: ErrorCode.LOCATION_DISTRICT_NOT_FOUND,
+      });
     }
     return this.prisma.ward.findMany({
       where: { districtId },

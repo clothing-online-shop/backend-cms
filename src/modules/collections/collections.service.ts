@@ -82,7 +82,10 @@ export class CollectionsService {
       include: PRODUCTS_INCLUDE,
     });
     if (!collection || collection.isDelete) {
-      throw new NotFoundException('Không tìm thấy bộ sưu tập');
+      throw new NotFoundException({
+        message: 'Không tìm thấy bộ sưu tập',
+        code: ErrorCode.COLLECTION_NOT_FOUND,
+      });
     }
     return withStatus(collection);
   }
@@ -181,7 +184,10 @@ export class CollectionsService {
       },
     });
     if (count === 0) {
-      throw new NotFoundException('Không tìm thấy bộ sưu tập');
+      throw new NotFoundException({
+        message: 'Không tìm thấy bộ sưu tập',
+        code: ErrorCode.COLLECTION_NOT_FOUND,
+      });
     }
     const updated = await this.prisma.collection.findUniqueOrThrow({
       where: { id },
@@ -299,9 +305,10 @@ export class CollectionsService {
       select: { id: true, status: true },
     });
     if (products.length !== uniqueIds.size) {
-      throw new BadRequestException(
-        'Có sản phẩm không tồn tại trong danh sách gán',
-      );
+      throw new BadRequestException({
+        message: 'Có sản phẩm không tồn tại trong danh sách gán',
+        code: ErrorCode.COLLECTION_ASSIGN_PRODUCTS_NOT_FOUND,
+      });
     }
     return new Map(products.map((p) => [p.id, p.status]));
   }
@@ -329,7 +336,10 @@ export class CollectionsService {
       where: { id },
     });
     if (!collection || collection.isDelete) {
-      throw new NotFoundException('Không tìm thấy bộ sưu tập');
+      throw new NotFoundException({
+        message: 'Không tìm thấy bộ sưu tập',
+        code: ErrorCode.COLLECTION_NOT_FOUND,
+      });
     }
     return collection;
   }

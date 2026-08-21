@@ -72,7 +72,10 @@ export class AuthService {
         ),
       });
     } catch {
-      throw new UnauthorizedException('Refresh token không hợp lệ.');
+      throw new UnauthorizedException({
+        message: 'Refresh token không hợp lệ.',
+        code: ErrorCode.AUTH_REFRESH_TOKEN_INVALID,
+      });
     }
 
     const candidates = await this.prisma.refreshToken.findMany({
@@ -92,14 +95,18 @@ export class AuthService {
     }
 
     if (!matchedTokenId) {
-      throw new UnauthorizedException(
-        'Refresh token không hợp lệ hoặc đã bị thu hồi.',
-      );
+      throw new UnauthorizedException({
+        message: 'Refresh token không hợp lệ hoặc đã bị thu hồi.',
+        code: ErrorCode.AUTH_REFRESH_TOKEN_INVALID,
+      });
     }
 
     const user = await this.usersService.findById(payload.sub);
     if (!user || !isAdminPanelRole(user.role)) {
-      throw new UnauthorizedException('Người dùng không tồn tại');
+      throw new UnauthorizedException({
+        message: 'Người dùng không tồn tại',
+        code: ErrorCode.AUTH_REFRESH_USER_NOT_FOUND,
+      });
     }
 
     if (user.status !== UserStatus.ACTIVE) {

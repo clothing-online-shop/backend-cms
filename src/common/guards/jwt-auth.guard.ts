@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { AuthenticatedUser } from '../../modules/auth/strategies/jwt.strategy';
+import { ErrorCode } from '../constants/error-codes';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -12,9 +13,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     user: TUser | false,
   ): TUser {
     if (!user) {
-      throw new UnauthorizedException(
-        'Phiên đăng nhập đã hết hạn hoặc không hợp lệ, vui lòng đăng nhập lại.',
-      );
+      throw new UnauthorizedException({
+        message:
+          'Phiên đăng nhập đã hết hạn hoặc không hợp lệ, vui lòng đăng nhập lại.',
+        code: ErrorCode.AUTH_SESSION_EXPIRED,
+      });
     }
     return user;
   }

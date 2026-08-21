@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import type { AuthenticatedUser } from '../../modules/auth/strategies/jwt.strategy';
+import { ErrorCode } from '../constants/error-codes';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -30,9 +31,10 @@ export class RolesGuard implements CanActivate {
     // Trả false thay vì throw thì Nest tự ném ForbiddenException() rỗng — message mặc
     // định "Forbidden" (tiếng Anh). Ném tường minh để có message tiếng Việt.
     if (!requiredRoles.includes(user?.role)) {
-      throw new ForbiddenException(
-        'Bạn không có quyền thực hiện thao tác này.',
-      );
+      throw new ForbiddenException({
+        message: 'Bạn không có quyền thực hiện thao tác này.',
+        code: ErrorCode.AUTH_FORBIDDEN_ROLE,
+      });
     }
 
     return true;
