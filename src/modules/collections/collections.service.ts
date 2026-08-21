@@ -277,7 +277,10 @@ export class CollectionsService {
       where: { collectionId, productId },
     });
     if (count === 0) {
-      throw new NotFoundException('Bộ sưu tập không chứa sản phẩm này');
+      throw new NotFoundException({
+        message: 'Bộ sưu tập không chứa sản phẩm này',
+        code: ErrorCode.PRODUCT_NOT_IN_COLLECTION,
+      });
     }
   }
 
@@ -314,9 +317,10 @@ export class CollectionsService {
       (id) => statusByProductId.get(id) !== ProductStatus.ACTIVE,
     );
     if (hasInactive) {
-      throw new BadRequestException(
-        'Chỉ có thể gán sản phẩm đang mở bán vào bộ sưu tập.',
-      );
+      throw new BadRequestException({
+        message: 'Chỉ có thể gán sản phẩm đang mở bán vào bộ sưu tập.',
+        code: ErrorCode.COLLECTION_ASSIGN_BLOCKED_PRODUCT_INACTIVE,
+      });
     }
   }
 

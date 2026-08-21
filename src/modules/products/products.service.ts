@@ -16,6 +16,7 @@ import { generateSlug, generateSku } from '../../common/utils/slug.util';
 import { diffNewlyAdded } from '../../common/utils/diff.util';
 import { assertImagesPublicIdsAligned } from '../../common/utils/image-pairing.util';
 import { UploadService } from '../upload/upload.service';
+import { ErrorCode } from '../../common/constants/error-codes';
 import { ProductStatus } from './product-status.enum';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -25,7 +26,6 @@ import {
   ListProductsQueryDto,
   ProductSort,
 } from './dto/list-products-query.dto';
-import { ErrorCode } from '../../common/constants/error-codes';
 import { isDateRangeEnded } from '../../common/utils/date.util';
 import {
   buildSkipTake,
@@ -605,16 +605,21 @@ export class ProductsService {
       throw new NotFoundException('Không tìm thấy bộ sưu tập');
     }
     if (isDateRangeEnded(collection.endDate)) {
-      throw new BadRequestException(
-        'Bộ sưu tập đã kết thúc — không thể gỡ sản phẩm khỏi bộ sưu tập đã kết thúc.',
-      );
+      throw new BadRequestException({
+        message:
+          'Bộ sưu tập đã kết thúc — không thể gỡ sản phẩm khỏi bộ sưu tập đã kết thúc.',
+        code: ErrorCode.PRODUCT_COLLECTION_ENDED,
+      });
     }
 
     const { count } = await this.prisma.collectionProduct.deleteMany({
       where: { productId, collectionId },
     });
     if (count === 0) {
-      throw new NotFoundException('Sản phẩm không thuộc bộ sưu tập này');
+      throw new NotFoundException({
+        message: 'Sản phẩm không thuộc bộ sưu tập này',
+        code: ErrorCode.PRODUCT_NOT_IN_COLLECTION,
+      });
     }
   }
 
@@ -814,7 +819,10 @@ export class ProductsService {
     basePrice: number,
   ): void {
     if (salePrice != null && salePrice >= basePrice) {
-      throw new BadRequestException('Giá khuyến mãi phải nhỏ hơn giá gốc');
+      throw new BadRequestException({
+        message: 'Giá khuyến mãi phải nhỏ hơn giá gốc',
+        code: ErrorCode.PRODUCT_SALE_PRICE_INVALID,
+      });
     }
   }
 
