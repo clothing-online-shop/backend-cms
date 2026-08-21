@@ -56,7 +56,10 @@ export class CategoriesService {
     });
 
     if (!category || category.isDelete) {
-      throw new NotFoundException('Không tìm thấy danh mục');
+      throw new NotFoundException({
+        message: 'Không tìm thấy danh mục',
+        code: ErrorCode.CATEGORY_NOT_FOUND,
+      });
     }
 
     return category;
@@ -143,7 +146,10 @@ export class CategoriesService {
       },
     });
     if (count === 0) {
-      throw new NotFoundException('Không tìm thấy danh mục');
+      throw new NotFoundException({
+        message: 'Không tìm thấy danh mục',
+        code: ErrorCode.CATEGORY_NOT_FOUND,
+      });
     }
     const updated = await this.prisma.category.findUniqueOrThrow({
       where: { id },
@@ -173,9 +179,10 @@ export class CategoriesService {
     ]);
 
     if (productCount > 0) {
-      throw new ConflictException(
-        `Không thể xóa danh mục vì còn ${productCount} sản phẩm thuộc danh mục này`,
-      );
+      throw new ConflictException({
+        message: `Không thể xóa danh mục vì còn ${productCount} sản phẩm thuộc danh mục này`,
+        code: ErrorCode.CATEGORY_DELETE_BLOCKED_HAS_PRODUCTS,
+      });
     }
     if (childrenCount > 0) {
       throw new ConflictException({
@@ -213,16 +220,20 @@ export class CategoriesService {
 
     for (const item of dto.items) {
       if (!parentMap.has(item.id)) {
-        throw new NotFoundException(`Không tìm thấy danh mục ${item.id}`);
+        throw new NotFoundException({
+          message: `Không tìm thấy danh mục ${item.id}`,
+          code: ErrorCode.CATEGORY_NOT_FOUND,
+        });
       }
       if (
         item.parentId !== undefined &&
         item.parentId !== null &&
         !parentMap.has(item.parentId)
       ) {
-        throw new NotFoundException(
-          `Không tìm thấy danh mục cha ${item.parentId}`,
-        );
+        throw new NotFoundException({
+          message: `Không tìm thấy danh mục cha ${item.parentId}`,
+          code: ErrorCode.CATEGORY_NOT_FOUND,
+        });
       }
       if (
         item.parentId !== undefined &&
@@ -283,7 +294,10 @@ export class CategoriesService {
   private async assertCategoryExists(id: string): Promise<Category> {
     const category = await this.prisma.category.findUnique({ where: { id } });
     if (!category || category.isDelete) {
-      throw new NotFoundException('Không tìm thấy danh mục');
+      throw new NotFoundException({
+        message: 'Không tìm thấy danh mục',
+        code: ErrorCode.CATEGORY_NOT_FOUND,
+      });
     }
     return category;
   }

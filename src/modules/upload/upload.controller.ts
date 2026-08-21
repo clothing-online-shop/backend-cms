@@ -22,6 +22,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UploadService } from './upload.service';
+import { ErrorCode } from '../../common/constants/error-codes';
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = [
@@ -63,9 +64,10 @@ export class UploadController {
       fileFilter: (_req, file, callback) => {
         if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
           callback(
-            new BadRequestException(
-              'Chỉ chấp nhận ảnh định dạng .jpg, .jpeg, .png, .webp',
-            ),
+            new BadRequestException({
+              message: 'Chỉ chấp nhận ảnh định dạng .jpg, .jpeg, .png, .webp',
+              code: ErrorCode.UPLOAD_IMAGE_INVALID_TYPE,
+            }),
             false,
           );
           return;
@@ -76,7 +78,10 @@ export class UploadController {
   )
   uploadImage(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      throw new BadRequestException('Vui lòng chọn file ảnh để upload');
+      throw new BadRequestException({
+        message: 'Vui lòng chọn file ảnh để upload',
+        code: ErrorCode.UPLOAD_IMAGE_FILE_REQUIRED,
+      });
     }
     return this.uploadService.uploadImage(file);
   }
@@ -108,9 +113,10 @@ export class UploadController {
       fileFilter: (_req, file, callback) => {
         if (!ALLOWED_VIDEO_MIME_TYPES.includes(file.mimetype)) {
           callback(
-            new BadRequestException(
-              'Chỉ chấp nhận video định dạng .mp4, .webm',
-            ),
+            new BadRequestException({
+              message: 'Chỉ chấp nhận video định dạng .mp4, .webm',
+              code: ErrorCode.UPLOAD_VIDEO_INVALID_TYPE,
+            }),
             false,
           );
           return;
@@ -121,7 +127,10 @@ export class UploadController {
   )
   uploadVideo(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      throw new BadRequestException('Vui lòng chọn file video để upload');
+      throw new BadRequestException({
+        message: 'Vui lòng chọn file video để upload',
+        code: ErrorCode.UPLOAD_VIDEO_FILE_REQUIRED,
+      });
     }
     return this.uploadService.uploadVideo(file);
   }

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import { ErrorCode } from '../../common/constants/error-codes';
 
 export interface UploadResult {
   url: string;
@@ -106,7 +107,10 @@ export class UploadService {
     // 1 tài khoản admin-panel bất kỳ (kể cả role thấp như MARKETING) có thể xóa bất kỳ
     // asset nào trong cả tài khoản Cloudinary (chung account có thể có project khác).
     if (!publicId.startsWith(`${UPLOAD_FOLDER}/`)) {
-      throw new BadRequestException('publicId không hợp lệ');
+      throw new BadRequestException({
+        message: 'publicId không hợp lệ',
+        code: ErrorCode.UPLOAD_INVALID_PUBLIC_ID,
+      });
     }
     await cloudinary.uploader.destroy(publicId);
   }

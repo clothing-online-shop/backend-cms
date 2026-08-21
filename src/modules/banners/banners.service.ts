@@ -10,6 +10,7 @@ import { CreateBannerDto } from './dto/create-banner.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
 import { ListBannersQueryDto } from './dto/list-banners-query.dto';
 import { ReorderBannersDto } from './dto/reorder-banners.dto';
+import { ErrorCode } from '../../common/constants/error-codes';
 import { BannerStatus } from './banner-status.enum';
 import {
   deriveDateRangeStatus,
@@ -126,9 +127,10 @@ export class BannersService {
       select: { id: true },
     });
     if (existing.length !== ids.length) {
-      throw new BadRequestException(
-        'Có banner không tồn tại trong danh sách sắp xếp',
-      );
+      throw new BadRequestException({
+        message: 'Có banner không tồn tại trong danh sách sắp xếp',
+        code: ErrorCode.BANNER_REORDER_NOT_FOUND,
+      });
     }
 
     await this.prisma.$transaction(
@@ -144,7 +146,10 @@ export class BannersService {
   private async findExisting(id: string): Promise<Banner> {
     const banner = await this.prisma.banner.findUnique({ where: { id } });
     if (!banner) {
-      throw new NotFoundException('Không tìm thấy banner');
+      throw new NotFoundException({
+        message: 'Không tìm thấy banner',
+        code: ErrorCode.BANNER_NOT_FOUND,
+      });
     }
     return banner;
   }

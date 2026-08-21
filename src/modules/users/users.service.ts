@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ErrorCode } from '../../common/constants/error-codes';
 import {
   PaymentStatus,
   Prisma,
@@ -99,7 +100,10 @@ export class UsersService {
       },
     });
     if (!customer || customer.role !== UserRole.CUSTOMER) {
-      throw new NotFoundException('Không tìm thấy khách hàng');
+      throw new NotFoundException({
+        message: 'Không tìm thấy khách hàng',
+        code: ErrorCode.USER_CUSTOMER_NOT_FOUND,
+      });
     }
 
     const totalOrders = customer.orders.length;
@@ -130,7 +134,10 @@ export class UsersService {
   ): Promise<Omit<User, 'password'>> {
     const customer = await this.prisma.user.findUnique({ where: { id } });
     if (!customer || customer.role !== UserRole.CUSTOMER) {
-      throw new NotFoundException('Không tìm thấy khách hàng');
+      throw new NotFoundException({
+        message: 'Không tìm thấy khách hàng',
+        code: ErrorCode.USER_CUSTOMER_NOT_FOUND,
+      });
     }
     const updated = await this.prisma.user.update({
       where: { id },

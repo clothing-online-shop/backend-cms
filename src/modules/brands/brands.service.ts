@@ -8,6 +8,7 @@ import { PrismaService } from '../../config/prisma.service';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
 import { ListBrandsQueryDto } from './dto/list-brands-query.dto';
+import { ErrorCode } from '../../common/constants/error-codes';
 
 @Injectable()
 export class BrandsService {
@@ -25,7 +26,10 @@ export class BrandsService {
   async findOne(id: string): Promise<Brand> {
     const brand = await this.prisma.brand.findUnique({ where: { id } });
     if (!brand) {
-      throw new NotFoundException('Không tìm thấy thương hiệu');
+      throw new NotFoundException({
+        message: 'Không tìm thấy thương hiệu',
+        code: ErrorCode.BRAND_NOT_FOUND,
+      });
     }
     return brand;
   }
@@ -62,9 +66,10 @@ export class BrandsService {
       where: { brandId: id },
     });
     if (productCount > 0) {
-      throw new ConflictException(
-        `Không thể xóa thương hiệu vì còn ${productCount} sản phẩm đang gắn thương hiệu này`,
-      );
+      throw new ConflictException({
+        message: `Không thể xóa thương hiệu vì còn ${productCount} sản phẩm đang gắn thương hiệu này`,
+        code: ErrorCode.BRAND_DELETE_BLOCKED_HAS_PRODUCTS,
+      });
     }
 
     await this.prisma.brand.delete({ where: { id } });

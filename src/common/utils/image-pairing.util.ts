@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { ErrorCode } from '../constants/error-codes';
 
 // image/imagePublicId phải luôn đi cùng nhau — DB không tách bảng ảnh riêng để tra
 // publicId theo url, nếu client chỉ gửi 1 trong 2 thì field còn lại giữ nguyên giá trị cũ
@@ -14,9 +15,10 @@ export function assertImagePublicIdAligned(
   },
 ): void {
   if ((image !== undefined) !== (imagePublicId !== undefined)) {
-    throw new BadRequestException(
-      `${fieldNames.image} và ${fieldNames.imagePublicId} phải được gửi cùng nhau`,
-    );
+    throw new BadRequestException({
+      message: `${fieldNames.image} và ${fieldNames.imagePublicId} phải được gửi cùng nhau`,
+      code: ErrorCode.COMMON_IMAGE_PUBLIC_ID_MISMATCH,
+    });
   }
 }
 
@@ -32,8 +34,9 @@ export function assertImagesPublicIdsAligned(
     imagePublicIds !== undefined &&
     images.length !== imagePublicIds.length
   ) {
-    throw new BadRequestException(
-      'images và imagePublicIds phải có cùng số lượng phần tử',
-    );
+    throw new BadRequestException({
+      message: 'images và imagePublicIds phải có cùng số lượng phần tử',
+      code: ErrorCode.COMMON_IMAGES_COUNT_MISMATCH,
+    });
   }
 }
