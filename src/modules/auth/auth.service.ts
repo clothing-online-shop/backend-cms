@@ -7,6 +7,7 @@ import { PrismaService } from '../../config/prisma.service';
 import { UsersService } from '../users/users.service';
 import { isAdminPanelRole } from '../../common/constants/admin-panel-roles';
 import { toSafeUser } from '../../common/utils/safe-user.util';
+import { ErrorCode } from '../../common/constants/error-codes';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
@@ -29,20 +30,32 @@ export class AuthService {
   ): Promise<AuthTokens & { user: Omit<User, 'password'> }> {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+      throw new UnauthorizedException({
+        message: 'Email hoặc mật khẩu không đúng',
+        code: ErrorCode.AUTH_INVALID_CREDENTIALS,
+      });
     }
 
     const passwordMatches = await argon2.verify(user.password, dto.password);
     if (!passwordMatches) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+      throw new UnauthorizedException({
+        message: 'Email hoặc mật khẩu không đúng',
+        code: ErrorCode.AUTH_INVALID_CREDENTIALS,
+      });
     }
 
     if (!isAdminPanelRole(user.role)) {
-      throw new UnauthorizedException('Tài khoản không có quyền quản trị');
+      throw new UnauthorizedException({
+        message: 'Tài khoản không có quyền quản trị',
+        code: ErrorCode.AUTH_NOT_ADMIN,
+      });
     }
 
     if (user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc vô hiệu hóa');
+      throw new UnauthorizedException({
+        message: 'Tài khoản đã bị khóa hoặc vô hiệu hóa',
+        code: ErrorCode.AUTH_ACCOUNT_DISABLED,
+      });
     }
 
     const tokens = await this.issueTokens(user);
@@ -90,7 +103,10 @@ export class AuthService {
     }
 
     if (user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc vô hiệu hóa');
+      throw new UnauthorizedException({
+        message: 'Tài khoản đã bị khóa hoặc vô hiệu hóa',
+        code: ErrorCode.AUTH_ACCOUNT_DISABLED,
+      });
     }
 
     await this.prisma.refreshToken.update({

@@ -98,7 +98,10 @@ export class CategoriesService {
       dto.parentId !== undefined && dto.parentId !== existing.parentId;
     if (parentChanged) {
       if (dto.parentId === id) {
-        throw new BadRequestException('Danh mục không thể là cha của chính nó');
+        throw new BadRequestException({
+          message: 'Danh mục không thể là cha của chính nó',
+          code: ErrorCode.CATEGORY_SELF_PARENT,
+        });
       }
       if (dto.parentId) {
         await this.assertCategoryExists(dto.parentId);
@@ -175,9 +178,10 @@ export class CategoriesService {
       );
     }
     if (childrenCount > 0) {
-      throw new ConflictException(
-        'Không thể xóa danh mục vì còn danh mục con bên trong',
-      );
+      throw new ConflictException({
+        message: 'Không thể xóa danh mục vì còn danh mục con bên trong',
+        code: ErrorCode.CATEGORY_DELETE_BLOCKED_HAS_CHILDREN,
+      });
     }
 
     // slug có @unique cứng ở tầng DB, không biết gì về isDelete — nếu giữ nguyên slug cũ,
@@ -236,18 +240,20 @@ export class CategoriesService {
       const visited = new Set<string>([id]);
       while (cursor) {
         if (visited.has(cursor)) {
-          throw new BadRequestException(
-            'Thao tác sắp xếp tạo ra vòng lặp cha-con không hợp lệ',
-          );
+          throw new BadRequestException({
+            message: 'Thao tác sắp xếp tạo ra vòng lặp cha-con không hợp lệ',
+            code: ErrorCode.CATEGORY_REORDER_CYCLE,
+          });
         }
         visited.add(cursor);
         cursor = parentMap.get(cursor) ?? null;
       }
       // visited.size = số cấp từ gốc tới id (gồm chính nó) sau khi áp các thay đổi ở trên.
       if (visited.size > MAX_CATEGORY_DEPTH) {
-        throw new BadRequestException(
-          `Cây danh mục chỉ được sâu tối đa ${MAX_CATEGORY_DEPTH} cấp`,
-        );
+        throw new BadRequestException({
+          message: `Cây danh mục chỉ được sâu tối đa ${MAX_CATEGORY_DEPTH} cấp`,
+          code: ErrorCode.CATEGORY_MAX_DEPTH_EXCEEDED,
+        });
       }
     }
 
@@ -343,9 +349,11 @@ export class CategoriesService {
     const visited = new Set<string>();
     while (cursor) {
       if (cursor === categoryId) {
-        throw new BadRequestException(
-          'Không thể đặt danh mục con làm cha của chính tổ tiên của nó',
-        );
+        throw new BadRequestException({
+          message:
+            'Không thể đặt danh mục con làm cha của chính tổ tiên của nó',
+          code: ErrorCode.CATEGORY_ANCESTOR_AS_PARENT,
+        });
       }
       if (visited.has(cursor)) break;
       visited.add(cursor);
@@ -368,9 +376,10 @@ export class CategoriesService {
       : 0;
 
     if (depth + subtreeHeight > MAX_CATEGORY_DEPTH) {
-      throw new BadRequestException(
-        `Cây danh mục chỉ được sâu tối đa ${MAX_CATEGORY_DEPTH} cấp`,
-      );
+      throw new BadRequestException({
+        message: `Cây danh mục chỉ được sâu tối đa ${MAX_CATEGORY_DEPTH} cấp`,
+        code: ErrorCode.CATEGORY_MAX_DEPTH_EXCEEDED,
+      });
     }
   }
 
