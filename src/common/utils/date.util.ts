@@ -41,3 +41,14 @@ export function deriveDateRangeStatus(
 export function isDateRangeEnded(endDate: Date): boolean {
   return toDateOnly(new Date()) > toDateOnly(endDate);
 }
+
+// Dùng chung cho mọi bộ lọc kiểu from/to trên 1 mốc thời gian (StockMovement.createdAt,
+// Order.createdAt...) — chuỗi ngày thuần "YYYY-MM-DD" (tham số `to`) phải được hiểu là hết
+// ngày đó, nếu không new Date() sẽ parse ra 00:00 UTC và loại mất hết dữ liệu trong đúng
+// ngày được chọn. Chuỗi đã kèm giờ (FE tự gửi "...T23:59:59.999") thì giữ nguyên, không
+// cộng dồn 2 lần.
+export function toInclusiveEndOfDay(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T23:59:59.999`)
+    : new Date(value);
+}

@@ -24,6 +24,8 @@ enum UserStatus {
 enum OrderStatus {
   PENDING
   CONFIRMED
+  PACKING
+  HANDED_OVER
   SHIPPING
   COMPLETED
   CANCELLED
@@ -382,6 +384,8 @@ model Order {
   statusHistories OrderStatusHistory[]
 
   @@index([userId])
+  @@index([status])
+  @@index([createdAt])
   @@map("orders")
 }
 
