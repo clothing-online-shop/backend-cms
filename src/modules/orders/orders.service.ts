@@ -63,7 +63,19 @@ export class OrdersService {
     const [orders, total] = await this.prisma.$transaction([
       this.prisma.order.findMany({
         where,
-        include: { _count: { select: { items: true } } },
+        include: {
+          _count: { select: { items: true } },
+          user: { select: { fullName: true } },
+          // Chỉ đơn CANCELLED mới có dòng khớp — order chưa từng hủy thì mảng rỗng, map
+          // bên dưới tự trả null. take: 1 vì 1 đơn chỉ hủy được đúng 1 lần (CANCELLED là
+          // trạng thái cuối, không hủy lại được nữa — xem ORDER_STATUS_TRANSITIONS).
+          statusHistories: {
+            where: { toStatus: OrderStatus.CANCELLED },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { note: true },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         ...buildSkipTake(page, limit),
       }),
@@ -79,7 +91,9 @@ export class OrdersService {
         paymentStatus: order.paymentStatus,
         totalAmount: order.totalAmount.toNumber(),
         shippingAddress: order.shippingAddress,
+        customerName: order.user.fullName,
         itemCount: order._count.items,
+        cancelReason: order.statusHistories[0]?.note ?? null,
         createdAt: order.createdAt,
       })),
       meta: buildPageMeta(total, page, limit),

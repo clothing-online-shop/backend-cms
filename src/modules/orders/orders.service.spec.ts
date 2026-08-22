@@ -26,6 +26,8 @@ function order(overrides: Partial<Record<string, unknown>> = {}) {
       'Nguyễn Văn A - 0900000000 - 123 Đường ABC, Phường 1, Quận 1, TP. Hồ Chí Minh',
     createdAt: new Date('2026-08-21T00:00:00.000Z'),
     _count: { items: 2 },
+    user: { fullName: 'Nguyễn Văn A' },
+    statusHistories: [],
     ...overrides,
   };
 }
@@ -48,7 +50,9 @@ describe('OrdersService.findAll', () => {
         totalAmount: 300000,
         shippingAddress:
           'Nguyễn Văn A - 0900000000 - 123 Đường ABC, Phường 1, Quận 1, TP. Hồ Chí Minh',
+        customerName: 'Nguyễn Văn A',
         itemCount: 2,
+        cancelReason: null,
         createdAt: order().createdAt,
       },
     ]);
@@ -58,6 +62,26 @@ describe('OrdersService.findAll', () => {
       limit: 20,
       totalPages: 1,
     });
+  });
+
+  it('đơn đã hủy → trả đúng lý do hủy từ statusHistories', async () => {
+    const { prisma, transaction } = createPrismaMock();
+    transaction.mockResolvedValue([
+      [
+        order({
+          status: 'CANCELLED',
+          statusHistories: [{ note: 'Khách đổi ý, không muốn mua nữa.' }],
+        }),
+      ],
+      1,
+    ]);
+    const service = new OrdersService(prisma);
+
+    const result = await service.findAll({ page: 1, limit: 20 });
+
+    expect(result.data[0].cancelReason).toBe(
+      'Khách đổi ý, không muốn mua nữa.',
+    );
   });
 
   it('leaves the filters out of the where clause when no filter is given', async () => {
