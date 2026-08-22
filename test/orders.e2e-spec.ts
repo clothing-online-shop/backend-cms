@@ -162,6 +162,12 @@ describe('Orders — GET /orders (e2e)', () => {
       await prisma.user.deleteMany({ where: { id: customerId } });
     }
     if (productId) {
+      // Các test PATCH /status (hoàn kho khi hủy đơn) ghi StockMovement cho những variant
+      // tạo riêng trong createOrderWithItem() — phải xoá trước, nếu không
+      // productVariant.deleteMany() bên dưới vi phạm FK stock_movements_productVariantId_fkey.
+      await prisma.stockMovement.deleteMany({
+        where: { productVariant: { productId } },
+      });
       await prisma.productVariant.deleteMany({ where: { productId } });
       await prisma.product.deleteMany({ where: { id: productId } });
     }
@@ -295,5 +301,160 @@ describe('Orders — GET /orders (e2e)', () => {
       .get('/orders/khong-ton-tai')
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(404);
+  });
+
+  // Mỗi test PATCH /status tự tạo đơn + biến thể riêng (không dùng chung
+  // orderPendingCod/orderConfirmedVnpay) — các test filter phía trên còn phụ thuộc 2 đơn
+  // đó giữ nguyên status ban đầu, đổi status ở đây sẽ làm sai lệch assertion của chúng nếu
+  // dùng chung.
+  async function createOrderWithItem(status: string, paymentMethod: string) {
+    const seed = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+    const variant = await prisma.productVariant.create({
+      data: {
+        productId,
+        size: 'M',
+        color: 'Đen',
+        sku: `SKU-STATUS-E2E-${seed}`,
+        price: '150000',
+        stockQuantity: 10,
+      },
+    });
+    const order = await prisma.order.create({
+      data: {
+        userId: customerId,
+        orderCode: `DH-STATUS-E2E-${seed}`,
+        status,
+        totalAmount: '150000',
+        shippingAddress: 'Nguyễn Văn A - 0900000000 - 1 Đường Test',
+        paymentMethod,
+        items: {
+          create: [
+            {
+              productVariantId: variant.id,
+              productName: 'Áo thun Orders E2E',
+              variantSku: variant.sku,
+              size: 'M',
+              color: 'Đen',
+              quantity: 2,
+              priceAtPurchase: '150000',
+            },
+          ],
+        },
+      },
+    });
+    return { order, variant };
+  }
+
+  it('PATCH /orders/:id/status — PENDING → CONFIRMED: cập nhật status, ghi lịch sử kèm ghi chú', async () => {
+    const { order } = await createOrderWithItem('PENDING', 'COD');
+
+    const response = await request(app.getHttpServer())
+      .patch(`/orders/${order.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'CONFIRMED', note: 'Đã xác nhận qua điện thoại' })
+      .expect(200);
+
+    const body = response.body as {
+      status: string;
+      statusHistories: Array<{
+        toStatus: string;
+        note: string | null;
+        changedByName: string | null;
+      }>;
+    };
+    expect(body.status).toBe('CONFIRMED');
+    const lastHistory = body.statusHistories[body.statusHistories.length - 1];
+    expect(lastHistory).toMatchObject({
+      toStatus: 'CONFIRMED',
+      note: 'Đã xác nhận qua điện thoại',
+      changedByName: 'Orders E2E Admin',
+    });
+  });
+
+  it('PATCH /orders/:id/status — chuyển sai luật (PENDING → COMPLETED) → 400', async () => {
+    const { order } = await createOrderWithItem('PENDING', 'COD');
+
+    await request(app.getHttpServer())
+      .patch(`/orders/${order.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'COMPLETED' })
+      .expect(400);
+  });
+
+  it('PATCH /orders/:id/status — hủy đơn (CANCELLED): tự động hoàn kho', async () => {
+    const { order, variant } = await createOrderWithItem('PENDING', 'COD');
+
+    await request(app.getHttpServer())
+      .patch(`/orders/${order.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'CANCELLED' })
+      .expect(200);
+
+    const updatedVariant = await prisma.productVariant.findUniqueOrThrow({
+      where: { id: variant.id },
+    });
+    // Stock ban đầu 10, order dùng quantity 2 nhưng KHÔNG trừ lúc tạo đơn qua e2e này (tạo
+    // thẳng qua Prisma, không qua createOrder() thật của backend-user) — chỉ assert đúng
+    // phần cộng vào do hoàn kho: 10 (khởi tạo) + 2 (hoàn) = 12.
+    expect(updatedVariant.stockQuantity).toBe(12);
+    const movements = await prisma.stockMovement.findMany({
+      where: { productVariantId: variant.id },
+    });
+    expect(movements).toHaveLength(1);
+    expect(movements[0]).toMatchObject({ type: 'IMPORT', quantity: 2 });
+  });
+
+  it('PATCH /orders/:id/status — đơn COD chuyển COMPLETED: tự động paymentStatus = PAID', async () => {
+    const { order } = await createOrderWithItem('SHIPPING', 'COD');
+
+    const response = await request(app.getHttpServer())
+      .patch(`/orders/${order.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'COMPLETED' })
+      .expect(200);
+
+    const body = response.body as { status: string; paymentStatus: string };
+    expect(body.status).toBe('COMPLETED');
+    expect(body.paymentStatus).toBe('PAID');
+  });
+
+  it('PATCH /orders/:id/status — đơn VNPAY chuyển COMPLETED: KHÔNG tự đổi paymentStatus', async () => {
+    const { order } = await createOrderWithItem('SHIPPING', 'VNPAY');
+
+    const response = await request(app.getHttpServer())
+      .patch(`/orders/${order.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'COMPLETED' })
+      .expect(200);
+
+    const body = response.body as { paymentStatus: string };
+    expect(body.paymentStatus).toBe('UNPAID');
+  });
+
+  it('PATCH /orders/:id/status — role MARKETING (không đủ quyền ghi) → 403', async () => {
+    const marketing = await prisma.user.create({
+      data: {
+        email: `orders-e2e-marketing-${Date.now()}@example.com`,
+        password: 'unused-hash',
+        fullName: 'Orders E2E Marketing',
+        role: UserRole.MARKETING,
+      },
+    });
+    const marketingToken = jwt.sign({
+      sub: marketing.id,
+      email: marketing.email,
+      role: marketing.role,
+    } satisfies JwtPayload);
+    const { order } = await createOrderWithItem('PENDING', 'COD');
+
+    try {
+      await request(app.getHttpServer())
+        .patch(`/orders/${order.id}/status`)
+        .set('Authorization', `Bearer ${marketingToken}`)
+        .send({ status: 'CONFIRMED' })
+        .expect(403);
+    } finally {
+      await prisma.user.deleteMany({ where: { id: marketing.id } });
+    }
   });
 });

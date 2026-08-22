@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../config/prisma.service';
@@ -316,5 +316,242 @@ describe('OrdersService.findOne', () => {
       message: 'Không tìm thấy đơn hàng.',
       code: 1801,
     });
+  });
+});
+
+describe('OrdersService.updateStatus', () => {
+  function createUpdateStatusPrismaMock() {
+    const orderFindUnique = jest.fn();
+    const orderUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const stockMovementCreate = jest.fn();
+    const productVariantUpdate = jest.fn();
+    const orderStatusHistoryCreate = jest.fn();
+    const tx = {
+      order: { updateMany: orderUpdateMany },
+      stockMovement: { create: stockMovementCreate },
+      productVariant: { update: productVariantUpdate },
+      orderStatusHistory: { create: orderStatusHistoryCreate },
+    };
+    const transaction = jest.fn(
+      (cb: (tx: unknown) => unknown) => cb(tx) as Promise<unknown>,
+    );
+    const prisma = {
+      order: { findUnique: orderFindUnique },
+      $transaction: transaction,
+    } as unknown as PrismaService;
+    return {
+      prisma,
+      orderFindUnique,
+      orderUpdateMany,
+      stockMovementCreate,
+      productVariantUpdate,
+      orderStatusHistoryCreate,
+      transaction,
+    };
+  }
+
+  // Bản ghi tối thiểu findOne() (lệnh gọi thứ 2, sau khi transaction commit) cần để không
+  // throw khi map — không đại diện dữ liệu thật, chỉ đủ field để .map() không crash.
+  function minimalFindOneRow(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: 'order-1',
+      orderCode: 'DH20260821ABCDEF',
+      status: 'CONFIRMED',
+      paymentMethod: 'COD',
+      paymentStatus: 'UNPAID',
+      totalAmount: new Prisma.Decimal(150000),
+      shippingAddress: 'A',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      user: {
+        id: 'user-1',
+        fullName: 'A',
+        email: 'a@example.com',
+        phone: null,
+      },
+      items: [],
+      statusHistories: [],
+      ...overrides,
+    };
+  }
+
+  it('PENDING → CONFIRMED: cập nhật status, ghi lịch sử, không đụng tồn kho/paymentStatus', async () => {
+    const {
+      prisma,
+      orderFindUnique,
+      orderUpdateMany,
+      stockMovementCreate,
+      orderStatusHistoryCreate,
+    } = createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'PENDING',
+        paymentMethod: 'COD',
+        items: [],
+      })
+      .mockResolvedValueOnce(minimalFindOneRow());
+    const service = new OrdersService(prisma);
+
+    await service.updateStatus('order-1', { status: 'CONFIRMED' }, 'admin-1');
+
+    expect(stockMovementCreate).not.toHaveBeenCalled();
+    expect(orderUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'order-1', status: 'PENDING' },
+      data: { status: 'CONFIRMED' },
+    });
+    expect(orderStatusHistoryCreate).toHaveBeenCalledWith({
+      data: {
+        orderId: 'order-1',
+        fromStatus: 'PENDING',
+        toStatus: 'CONFIRMED',
+        note: null,
+        changedById: 'admin-1',
+      },
+    });
+  });
+
+  it('→ CANCELLED: hoàn kho đúng số lượng từng item', async () => {
+    const {
+      prisma,
+      orderFindUnique,
+      stockMovementCreate,
+      productVariantUpdate,
+    } = createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'PENDING',
+        paymentMethod: 'COD',
+        items: [
+          { productVariantId: 'variant-1', quantity: 2 },
+          { productVariantId: 'variant-2', quantity: 1 },
+        ],
+      })
+      .mockResolvedValueOnce(minimalFindOneRow({ status: 'CANCELLED' }));
+    const service = new OrdersService(prisma);
+
+    await service.updateStatus('order-1', { status: 'CANCELLED' }, 'admin-1');
+
+    expect(stockMovementCreate).toHaveBeenCalledTimes(2);
+    const expectedFirstMovementData = expect.objectContaining({
+      productVariantId: 'variant-1',
+      type: 'IMPORT',
+      quantity: 2,
+    }) as unknown as Record<string, unknown>;
+    expect(stockMovementCreate).toHaveBeenCalledWith({
+      data: expectedFirstMovementData,
+    });
+    expect(productVariantUpdate).toHaveBeenCalledWith({
+      where: { id: 'variant-1' },
+      data: { stockQuantity: { increment: 2 } },
+    });
+    expect(productVariantUpdate).toHaveBeenCalledWith({
+      where: { id: 'variant-2' },
+      data: { stockQuantity: { increment: 1 } },
+    });
+  });
+
+  it('SHIPPING → COMPLETED cho đơn COD: tự động paymentStatus = PAID', async () => {
+    const { prisma, orderFindUnique, orderUpdateMany } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'SHIPPING',
+        paymentMethod: 'COD',
+        items: [],
+      })
+      .mockResolvedValueOnce(
+        minimalFindOneRow({ status: 'COMPLETED', paymentStatus: 'PAID' }),
+      );
+    const service = new OrdersService(prisma);
+
+    await service.updateStatus('order-1', { status: 'COMPLETED' }, 'admin-1');
+
+    expect(orderUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'order-1', status: 'SHIPPING' },
+      data: { status: 'COMPLETED', paymentStatus: 'PAID' },
+    });
+  });
+
+  it('SHIPPING → COMPLETED cho đơn VNPAY: KHÔNG tự đổi paymentStatus', async () => {
+    const { prisma, orderFindUnique, orderUpdateMany } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'SHIPPING',
+        paymentMethod: 'VNPAY',
+        items: [],
+      })
+      .mockResolvedValueOnce(
+        minimalFindOneRow({ status: 'COMPLETED', paymentMethod: 'VNPAY' }),
+      );
+    const service = new OrdersService(prisma);
+
+    await service.updateStatus('order-1', { status: 'COMPLETED' }, 'admin-1');
+
+    expect(orderUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'order-1', status: 'SHIPPING' },
+      data: { status: 'COMPLETED' },
+    });
+  });
+
+  it('chuyển sai luật (PENDING → COMPLETED) → BadRequestException kèm code ORDER_INVALID_STATUS_TRANSITION', async () => {
+    const { prisma, orderFindUnique, orderUpdateMany } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique.mockResolvedValueOnce({
+      id: 'order-1',
+      orderCode: 'DH20260821ABCDEF',
+      status: 'PENDING',
+      paymentMethod: 'COD',
+      items: [],
+    });
+    const service = new OrdersService(prisma);
+
+    let caught: BadRequestException | undefined;
+    try {
+      await service.updateStatus('order-1', { status: 'COMPLETED' }, 'admin-1');
+    } catch (err) {
+      caught = err as BadRequestException;
+    }
+    expect(caught).toBeInstanceOf(BadRequestException);
+    expect(caught?.getResponse()).toMatchObject({ code: 1802 });
+    expect(orderUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('order không tồn tại → NotFoundException', async () => {
+    const { prisma, orderFindUnique } = createUpdateStatusPrismaMock();
+    orderFindUnique.mockResolvedValueOnce(null);
+    const service = new OrdersService(prisma);
+
+    await expect(
+      service.updateStatus('missing', { status: 'CONFIRMED' }, 'admin-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('bị đổi trạng thái đồng thời (updateMany count=0) → ConflictException', async () => {
+    const { prisma, orderFindUnique, orderUpdateMany } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique.mockResolvedValueOnce({
+      id: 'order-1',
+      orderCode: 'DH20260821ABCDEF',
+      status: 'PENDING',
+      paymentMethod: 'COD',
+      items: [],
+    });
+    orderUpdateMany.mockResolvedValue({ count: 0 });
+    const service = new OrdersService(prisma);
+
+    await expect(
+      service.updateStatus('order-1', { status: 'CONFIRMED' }, 'admin-1'),
+    ).rejects.toThrow(
+      'Đơn hàng vừa được cập nhật bởi thao tác khác, vui lòng thử lại.',
+    );
   });
 });

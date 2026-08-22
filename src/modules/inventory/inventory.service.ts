@@ -15,6 +15,7 @@ import {
   buildPageMeta,
 } from '../../common/utils/pagination.util';
 import { toInclusiveEndOfDay } from '../../common/utils/date.util';
+import { applyStockMovement } from '../../common/utils/stock-movement.util';
 
 const LOW_STOCK_THRESHOLD_KEY = 'lowStockThreshold';
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
@@ -123,33 +124,6 @@ export class InventoryService {
     return rows[0] ?? null;
   }
 
-  // Ghi 1 movement + cộng dồn tồn kho trong CÙNG 1 transaction. Tách riêng vì
-  // import/adjust chỉ khác nhau ở cách tính delta, phần ghi là y hệt nhau.
-  private async applyMovement(
-    tx: Prisma.TransactionClient,
-    params: {
-      variantId: string;
-      type: StockMovementType;
-      delta: number;
-      note?: string | null;
-      createdById: string;
-    },
-  ): Promise<void> {
-    await tx.stockMovement.create({
-      data: {
-        productVariantId: params.variantId,
-        type: params.type,
-        quantity: params.delta,
-        note: params.note,
-        createdById: params.createdById,
-      },
-    });
-    await tx.productVariant.update({
-      where: { id: params.variantId },
-      data: { stockQuantity: { increment: params.delta } },
-    });
-  }
-
   // Đọc + validate + ghi phải nằm trong cùng transaction: nếu đọc tồn kho ngoài
   // transaction, 2 request đồng thời có thể cùng thấy 1 giá trị cũ và cùng ghi đè,
   // làm tồn kho âm hoặc điều chỉnh không về đúng số đã kiểm kê.
@@ -163,7 +137,7 @@ export class InventoryService {
         });
       }
 
-      await this.applyMovement(tx, {
+      await applyStockMovement(tx, {
         variantId,
         type: StockMovementType.IMPORT,
         delta: dto.quantity,
@@ -212,7 +186,7 @@ export class InventoryService {
         }
       }
 
-      await this.applyMovement(tx, {
+      await applyStockMovement(tx, {
         variantId,
         type: movementType,
         delta,

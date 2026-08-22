@@ -1,11 +1,23 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { ADMIN_PANEL_ROLES } from '../../common/constants/admin-panel-roles';
 import { OrdersService } from './orders.service';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
+import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
 @ApiTags('orders')
 @ApiBearerAuth()
@@ -32,5 +44,21 @@ export class OrdersController {
   })
   findOne(@Param('id') id: string) {
     return this.ordersService.findOne(id);
+  }
+
+  @Patch(':id/status')
+  // Hẹp hơn GET (không có MARKETING) — đây là hành động có tác động thật (trừ/hoàn kho,
+  // đổi paymentStatus), không phải chỉ xem để phân tích.
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({
+    summary:
+      'Đổi trạng thái đơn hàng — validate luồng chuyển hợp lệ, tự hoàn kho khi hủy đơn, tự đánh dấu đã thanh toán khi hoàn tất đơn COD, ghi lịch sử',
+  })
+  updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.ordersService.updateStatus(id, dto, user.id);
   }
 }
