@@ -14,6 +14,7 @@ import {
   buildSkipTake,
   buildPageMeta,
 } from '../../common/utils/pagination.util';
+import { toInclusiveEndOfDay } from '../../common/utils/date.util';
 
 const LOW_STOCK_THRESHOLD_KEY = 'lowStockThreshold';
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
@@ -280,14 +281,4 @@ export class InventoryService {
       meta: buildPageMeta(total, page, limit),
     };
   }
-}
-
-// DTO ghi rõ `to` là "lọc tới ngày này" (theo ngày, không phải mốc giờ chính xác) — chuỗi
-// ngày thuần "YYYY-MM-DD" phải được hiểu là hết ngày đó, nếu không new Date() sẽ parse ra
-// 00:00 UTC và loại luôn gần hết dữ liệu trong đúng ngày được chọn. Chuỗi đã kèm giờ
-// (FE hiện đang tự gửi "...T23:59:59.999") thì giữ nguyên, không cộng dồn 2 lần.
-function toInclusiveEndOfDay(value: string): Date {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? new Date(`${value}T23:59:59.999`)
-    : new Date(value);
 }
