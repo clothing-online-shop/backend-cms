@@ -55,6 +55,7 @@ enum PaymentProvider {
   VNPAY
   MOMO
   STRIPE
+  BANK_TRANSFER
 }
 
 enum TransactionStatus {

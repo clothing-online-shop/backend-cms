@@ -61,4 +61,11 @@ export class OrdersController {
   ) {
     return this.ordersService.updateStatus(id, dto, user.id);
   }
+
+  @Patch(':id/confirm-bank-transfer')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Xác nhận đã nhận tiền chuyển khoản (Admin)' })
+  confirmBankTransfer(@Param('id') id: string) {
+    return this.ordersService.confirmBankTransfer(id);
+  }
 }

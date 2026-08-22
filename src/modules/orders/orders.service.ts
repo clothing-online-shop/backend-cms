@@ -8,9 +8,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   OrderStatus,
+  PaymentProvider,
   PaymentStatus,
   Prisma,
   StockMovementType,
+  TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import {
@@ -255,6 +257,51 @@ export class OrdersService {
     );
 
     return this.findOne(id);
+  }
+
+  // Chỉ áp dụng cho đơn chuyển khoản — VNPay/COD có luồng cập nhật trạng thái riêng của
+  // chúng (VNPay qua IPN ở backend-user, COD qua giao hàng, cả 2 không thuộc phạm vi
+  // module này). Đây là hành động thủ công duy nhất admin cần cho luồng chuyển khoản: xác
+  // nhận đã nhận tiền.
+  async confirmBankTransfer(id: string) {
+    const order = await this.prisma.order.findUnique({ where: { id } });
+    if (!order) {
+      throw new NotFoundException('Không tìm thấy đơn hàng');
+    }
+    if (order.paymentMethod !== 'BANK_TRANSFER') {
+      throw new BadRequestException(
+        'Đơn hàng này không phải thanh toán chuyển khoản',
+      );
+    }
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      throw new BadRequestException(
+        'Đơn hàng đã được xác nhận thanh toán trước đó',
+      );
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.order.update({
+        where: { id },
+        data: {
+          paymentStatus: PaymentStatus.PAID,
+          status: OrderStatus.CONFIRMED,
+        },
+      });
+      await tx.paymentTransaction.create({
+        data: {
+          orderId: id,
+          provider: PaymentProvider.BANK_TRANSFER,
+          amount: order.totalAmount,
+          status: TransactionStatus.SUCCESS,
+        },
+      });
+      return result;
+    });
+
+    // totalAmount là Prisma.Decimal — trả thẳng sẽ bị JSON.stringify() thành chuỗi
+    // ("389000" thay vì 389000), khớp lý do toOrderResponse() bên backend-user convert
+    // trước khi trả response.
+    return { ...updated, totalAmount: updated.totalAmount.toNumber() };
   }
 
   // Báo khách hàng qua email mỗi lần đổi trạng thái — gọi API nội bộ ở backend-user (nơi
