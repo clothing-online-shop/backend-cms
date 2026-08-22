@@ -36,8 +36,8 @@ export class OrdersService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.order.update({
         where: { id },
         data: {
           paymentStatus: PaymentStatus.PAID,
@@ -52,7 +52,12 @@ export class OrdersService {
           status: TransactionStatus.SUCCESS,
         },
       });
-      return updated;
+      return result;
     });
+
+    // totalAmount là Prisma.Decimal — trả thẳng sẽ bị JSON.stringify() thành chuỗi
+    // ("389000" thay vì 389000), khớp lý do toOrderResponse() bên backend-user convert
+    // trước khi trả response.
+    return { ...updated, totalAmount: updated.totalAmount.toNumber() };
   }
 }
