@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../config/prisma.service';
@@ -172,6 +173,148 @@ describe('OrdersService.findAll', () => {
       page: 3,
       limit: 10,
       totalPages: 5,
+    });
+  });
+});
+
+describe('OrdersService.findOne', () => {
+  function createDetailPrismaMock() {
+    const findUnique = jest.fn();
+    const prisma = {
+      order: { findUnique },
+    } as unknown as PrismaService;
+    return { prisma, findUnique };
+  }
+
+  function orderDetail(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: 'order-1',
+      orderCode: 'DH20260821ABCDEF',
+      status: 'PENDING',
+      paymentMethod: 'COD',
+      paymentStatus: 'UNPAID',
+      totalAmount: new Prisma.Decimal(300000),
+      shippingAddress:
+        'Nguyễn Văn A - 0900000000 - 123 Đường ABC, Phường 1, Quận 1, TP. Hồ Chí Minh',
+      createdAt: new Date('2026-08-21T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-21T00:00:00.000Z'),
+      user: {
+        id: 'user-1',
+        fullName: 'Nguyễn Văn A',
+        email: 'a@example.com',
+        phone: '0900000000',
+      },
+      items: [
+        {
+          id: 'item-1',
+          productVariantId: 'variant-1',
+          productName: 'Áo thun basic',
+          variantSku: 'SKU-1',
+          size: 'M',
+          color: 'Đen',
+          thumbnail: null,
+          quantity: 2,
+          priceAtPurchase: new Prisma.Decimal(150000),
+        },
+      ],
+      statusHistories: [
+        {
+          id: 'history-1',
+          fromStatus: null,
+          toStatus: 'PENDING',
+          note: null,
+          changedBy: null,
+          createdAt: new Date('2026-08-21T00:00:00.000Z'),
+        },
+        {
+          id: 'history-2',
+          fromStatus: 'PENDING',
+          toStatus: 'CONFIRMED',
+          note: 'Đã xác nhận qua điện thoại',
+          changedBy: { fullName: 'Quản trị viên' },
+          createdAt: new Date('2026-08-21T01:00:00.000Z'),
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  it('trả về đủ order + items + customer + statusHistories, Decimal đã ép sang number', async () => {
+    const { prisma, findUnique } = createDetailPrismaMock();
+    findUnique.mockResolvedValue(orderDetail());
+    const service = new OrdersService(prisma);
+
+    const result = await service.findOne('order-1');
+
+    expect(result).toEqual({
+      id: 'order-1',
+      orderCode: 'DH20260821ABCDEF',
+      status: 'PENDING',
+      paymentMethod: 'COD',
+      paymentStatus: 'UNPAID',
+      totalAmount: 300000,
+      shippingAddress:
+        'Nguyễn Văn A - 0900000000 - 123 Đường ABC, Phường 1, Quận 1, TP. Hồ Chí Minh',
+      createdAt: new Date('2026-08-21T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-21T00:00:00.000Z'),
+      customer: {
+        id: 'user-1',
+        fullName: 'Nguyễn Văn A',
+        email: 'a@example.com',
+        phone: '0900000000',
+      },
+      items: [
+        {
+          id: 'item-1',
+          productVariantId: 'variant-1',
+          productName: 'Áo thun basic',
+          variantSku: 'SKU-1',
+          size: 'M',
+          color: 'Đen',
+          thumbnail: null,
+          quantity: 2,
+          priceAtPurchase: 150000,
+        },
+      ],
+      statusHistories: [
+        {
+          id: 'history-1',
+          fromStatus: null,
+          toStatus: 'PENDING',
+          note: null,
+          changedByName: null,
+          createdAt: new Date('2026-08-21T00:00:00.000Z'),
+        },
+        {
+          id: 'history-2',
+          fromStatus: 'PENDING',
+          toStatus: 'CONFIRMED',
+          note: 'Đã xác nhận qua điện thoại',
+          changedByName: 'Quản trị viên',
+          createdAt: new Date('2026-08-21T01:00:00.000Z'),
+        },
+      ],
+    });
+    expect(findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'order-1' } }),
+    );
+  });
+
+  it('order không tồn tại → NotFoundException kèm code ORDER_NOT_FOUND', async () => {
+    const { prisma, findUnique } = createDetailPrismaMock();
+    findUnique.mockResolvedValue(null);
+    const service = new OrdersService(prisma);
+
+    let caught: NotFoundException | undefined;
+    try {
+      await service.findOne('missing');
+    } catch (err) {
+      caught = err as NotFoundException;
+    }
+    expect(caught).toBeInstanceOf(NotFoundException);
+    expect(caught?.getResponse()).toMatchObject({
+      message: 'Không tìm thấy đơn hàng.',
+      code: 1801,
     });
   });
 });

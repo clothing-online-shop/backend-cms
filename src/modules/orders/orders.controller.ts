@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -22,5 +22,15 @@ export class OrdersController {
   })
   findAll(@Query() query: ListOrdersQueryDto) {
     return this.ordersService.findAll(query);
+  }
+
+  @Get(':id')
+  @Roles(...ADMIN_PANEL_ROLES)
+  @ApiOperation({
+    summary:
+      'Chi tiết đơn hàng — sản phẩm, khách hàng, địa chỉ/thanh toán, lịch sử trạng thái',
+  })
+  findOne(@Param('id') id: string) {
+    return this.ordersService.findOne(id);
   }
 }

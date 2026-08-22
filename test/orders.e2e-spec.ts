@@ -32,6 +32,8 @@ describe('Orders — GET /orders (e2e)', () => {
   let adminToken: string;
   let adminId: string;
   let customerId: string;
+  let categoryId: string;
+  let productId: string;
   let orderPendingCod: { id: string; orderCode: string };
   let orderConfirmedVnpay: { id: string; orderCode: string };
 
@@ -80,6 +82,34 @@ describe('Orders — GET /orders (e2e)', () => {
     customerId = customer.id;
 
     const seed = Date.now();
+    const category = await prisma.category.create({
+      data: {
+        name: 'Category Orders E2E',
+        slug: `category-orders-e2e-${seed}`,
+      },
+    });
+    categoryId = category.id;
+    const product = await prisma.product.create({
+      data: {
+        name: 'Áo thun Orders E2E',
+        slug: `ao-thun-orders-e2e-${seed}`,
+        categoryId,
+        basePrice: '150000',
+        status: 1,
+      },
+    });
+    productId = product.id;
+    const variant = await prisma.productVariant.create({
+      data: {
+        productId,
+        size: 'M',
+        color: 'Đen',
+        sku: `SKU-ORDERS-E2E-${seed}`,
+        price: '150000',
+        stockQuantity: 10,
+      },
+    });
+
     orderPendingCod = await prisma.order.create({
       data: {
         userId: customerId,
@@ -88,6 +118,24 @@ describe('Orders — GET /orders (e2e)', () => {
         totalAmount: '150000',
         shippingAddress: `Nguyễn Văn A - 09112233${seed % 100} - 1 Đường Test`,
         paymentMethod: 'COD',
+        items: {
+          create: [
+            {
+              productVariantId: variant.id,
+              productName: product.name,
+              variantSku: variant.sku,
+              size: variant.size,
+              color: variant.color,
+              quantity: 1,
+              priceAtPurchase: '150000',
+            },
+          ],
+        },
+        statusHistories: {
+          create: [
+            { fromStatus: null, toStatus: 'PENDING', changedById: null },
+          ],
+        },
       },
     });
     orderConfirmedVnpay = await prisma.order.create({
@@ -104,8 +152,21 @@ describe('Orders — GET /orders (e2e)', () => {
 
   afterAll(async () => {
     if (customerId) {
+      await prisma.orderStatusHistory.deleteMany({
+        where: { order: { userId: customerId } },
+      });
+      await prisma.orderItem.deleteMany({
+        where: { order: { userId: customerId } },
+      });
       await prisma.order.deleteMany({ where: { userId: customerId } });
       await prisma.user.deleteMany({ where: { id: customerId } });
+    }
+    if (productId) {
+      await prisma.productVariant.deleteMany({ where: { productId } });
+      await prisma.product.deleteMany({ where: { id: productId } });
+    }
+    if (categoryId) {
+      await prisma.category.deleteMany({ where: { id: categoryId } });
     }
     if (adminId) {
       await prisma.user.deleteMany({ where: { id: adminId } });
@@ -198,5 +259,41 @@ describe('Orders — GET /orders (e2e)', () => {
       .get('/orders')
       .set('Authorization', `Bearer ${customerToken}`)
       .expect(403);
+  });
+
+  it('GET /orders/:id — trả đủ items, customer, statusHistories', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/orders/${orderPendingCod.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    const body = response.body as {
+      orderCode: string;
+      customer: { fullName: string };
+      items: Array<{ productName: string; quantity: number }>;
+      statusHistories: Array<{
+        toStatus: string;
+        changedByName: string | null;
+      }>;
+    };
+    expect(body.orderCode).toBe(orderPendingCod.orderCode);
+    expect(body.customer.fullName).toBe('Orders E2E Customer');
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({
+      productName: 'Áo thun Orders E2E',
+      quantity: 1,
+    });
+    expect(body.statusHistories).toHaveLength(1);
+    expect(body.statusHistories[0]).toMatchObject({
+      toStatus: 'PENDING',
+      changedByName: null,
+    });
+  });
+
+  it('GET /orders/:id — id không tồn tại → 404', async () => {
+    await request(app.getHttpServer())
+      .get('/orders/khong-ton-tai')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(404);
   });
 });
