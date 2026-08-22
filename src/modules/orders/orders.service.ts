@@ -2,8 +2,10 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   OrderStatus,
   PaymentStatus,
@@ -21,12 +23,14 @@ import { ErrorCode } from '../../common/constants/error-codes';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
-// Luật chuyển trạng thái hợp lệ — PENDING→CONFIRMED→SHIPPING→COMPLETED tuần tự, không
-// nhảy cóc/lùi; CANCELLED cho phép từ 3 trạng thái đầu (chưa giao thì còn hủy được).
-// COMPLETED/CANCELLED là trạng thái cuối, không đổi tiếp được.
+// Luật chuyển trạng thái hợp lệ — PENDING→CONFIRMED→PACKING→HANDED_OVER→SHIPPING→COMPLETED
+// tuần tự, không nhảy cóc/lùi; CANCELLED cho phép từ mọi trạng thái trước SHIPPING (chưa bắt
+// đầu giao thì còn hủy được). COMPLETED/CANCELLED là trạng thái cuối, không đổi tiếp được.
 const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-  [OrderStatus.CONFIRMED]: [OrderStatus.SHIPPING, OrderStatus.CANCELLED],
+  [OrderStatus.CONFIRMED]: [OrderStatus.PACKING, OrderStatus.CANCELLED],
+  [OrderStatus.PACKING]: [OrderStatus.HANDED_OVER, OrderStatus.CANCELLED],
+  [OrderStatus.HANDED_OVER]: [OrderStatus.SHIPPING, OrderStatus.CANCELLED],
   [OrderStatus.SHIPPING]: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
   [OrderStatus.COMPLETED]: [],
   [OrderStatus.CANCELLED]: [],
@@ -34,7 +38,12 @@ const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(OrdersService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async findAll(query: ListOrdersQueryDto) {
     const page = query.page ?? 1;
@@ -239,6 +248,55 @@ export class OrdersService {
       });
     });
 
+    this.notifyCustomerStatusChange(
+      order.orderCode,
+      dto.status,
+      dto.note ?? null,
+    );
+
     return this.findOne(id);
+  }
+
+  // Báo khách hàng qua email mỗi lần đổi trạng thái — gọi API nội bộ ở backend-user (nơi
+  // duy nhất có MailService/SMTP đã cấu hình, tránh trùng lặp thiết lập mail ở cả 2 backend).
+  // KHÔNG await: lỗi mạng/SMTP không được phép làm hỏng response PATCH status — đây chỉ là
+  // tác vụ phụ, không phải luồng nghiệp vụ chính (đổi trạng thái đơn). Không retry ở bản đầu.
+  private notifyCustomerStatusChange(
+    orderCode: string,
+    status: OrderStatus,
+    note: string | null,
+  ): void {
+    const internalKey = this.config.get<string>('INTERNAL_NOTIFY_KEY');
+    if (!internalKey) {
+      this.logger.warn(
+        'Thiếu INTERNAL_NOTIFY_KEY trong .env — bỏ qua gửi email thông báo đổi trạng thái đơn.',
+      );
+      return;
+    }
+    const baseUrl = this.config.get<string>(
+      'BACKEND_USER_BASE_URL',
+      'http://localhost:3001',
+    );
+
+    fetch(`${baseUrl}/internal/orders/${orderCode}/status-notification`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-key': internalKey,
+      },
+      body: JSON.stringify({ status, note }),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          this.logger.error(
+            `Gửi thông báo đổi trạng thái đơn ${orderCode} thất bại: HTTP ${res.status}`,
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Gửi thông báo đổi trạng thái đơn ${orderCode} thất bại: ${String(err)}`,
+        );
+      });
   }
 }

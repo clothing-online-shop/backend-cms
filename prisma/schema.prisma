@@ -24,6 +24,8 @@ enum UserStatus {
 enum OrderStatus {
   PENDING
   CONFIRMED
+  PACKING
+  HANDED_OVER
   SHIPPING
   COMPLETED
   CANCELLED

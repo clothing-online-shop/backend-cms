@@ -1,7 +1,17 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../config/prisma.service';
+
+// Stub tối giản — hầu hết test không cần INTERNAL_NOTIFY_KEY (notifyCustomerStatusChange tự
+// no-op khi thiếu key, xem orders.service.ts), chỉ test riêng cho gửi thông báo mới cần
+// truyền overrides.
+function fakeConfig(overrides: Record<string, string> = {}): ConfigService {
+  return {
+    get: (key: string, defaultValue?: string) => overrides[key] ?? defaultValue,
+  } as unknown as ConfigService;
+}
 
 function createPrismaMock() {
   const findMany = jest.fn();
@@ -36,7 +46,7 @@ describe('OrdersService.findAll', () => {
   it('maps order fields into the summary response shape', async () => {
     const { prisma, transaction } = createPrismaMock();
     transaction.mockResolvedValue([[order()], 1]);
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     const result = await service.findAll({ page: 1, limit: 20 });
 
@@ -75,7 +85,7 @@ describe('OrdersService.findAll', () => {
       ],
       1,
     ]);
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     const result = await service.findAll({ page: 1, limit: 20 });
 
@@ -96,7 +106,7 @@ describe('OrdersService.findAll', () => {
       Promise.all(queries),
     );
 
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
     await service.findAll({ page: 1, limit: 20 });
 
     const andConditions = capturedFindManyWhere?.AND as
@@ -120,7 +130,7 @@ describe('OrdersService.findAll', () => {
       Promise.all(queries),
     );
 
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
     await service.findAll({
       status: 'CONFIRMED',
       paymentMethod: 'VNPAY',
@@ -160,7 +170,7 @@ describe('OrdersService.findAll', () => {
       Promise.all(queries),
     );
 
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
     await service.findAll({ search: '0900000000', page: 1, limit: 20 });
 
     const andConditions = capturedFindManyWhere?.AND as
@@ -187,7 +197,7 @@ describe('OrdersService.findAll', () => {
       Promise.all(queries),
     );
 
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
     const result = await service.findAll({ page: 3, limit: 10 });
 
     expect(capturedSkip).toBe(20);
@@ -266,7 +276,7 @@ describe('OrdersService.findOne', () => {
   it('trả về đủ order + items + customer + statusHistories, Decimal đã ép sang number', async () => {
     const { prisma, findUnique } = createDetailPrismaMock();
     findUnique.mockResolvedValue(orderDetail());
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     const result = await service.findOne('order-1');
 
@@ -327,7 +337,7 @@ describe('OrdersService.findOne', () => {
   it('order không tồn tại → NotFoundException kèm code ORDER_NOT_FOUND', async () => {
     const { prisma, findUnique } = createDetailPrismaMock();
     findUnique.mockResolvedValue(null);
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     let caught: NotFoundException | undefined;
     try {
@@ -416,7 +426,7 @@ describe('OrdersService.updateStatus', () => {
         items: [],
       })
       .mockResolvedValueOnce(minimalFindOneRow());
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     await service.updateStatus('order-1', { status: 'CONFIRMED' }, 'admin-1');
 
@@ -455,7 +465,7 @@ describe('OrdersService.updateStatus', () => {
         ],
       })
       .mockResolvedValueOnce(minimalFindOneRow({ status: 'CANCELLED' }));
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     await service.updateStatus(
       'order-1',
@@ -496,7 +506,7 @@ describe('OrdersService.updateStatus', () => {
       .mockResolvedValueOnce(
         minimalFindOneRow({ status: 'COMPLETED', paymentStatus: 'PAID' }),
       );
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     await service.updateStatus('order-1', { status: 'COMPLETED' }, 'admin-1');
 
@@ -520,7 +530,7 @@ describe('OrdersService.updateStatus', () => {
       .mockResolvedValueOnce(
         minimalFindOneRow({ status: 'COMPLETED', paymentMethod: 'VNPAY' }),
       );
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     await service.updateStatus('order-1', { status: 'COMPLETED' }, 'admin-1');
 
@@ -540,7 +550,7 @@ describe('OrdersService.updateStatus', () => {
       paymentMethod: 'COD',
       items: [],
     });
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     let caught: BadRequestException | undefined;
     try {
@@ -563,7 +573,7 @@ describe('OrdersService.updateStatus', () => {
       paymentMethod: 'COD',
       items: [],
     });
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     for (const note of [undefined, '   ']) {
       let caught: BadRequestException | undefined;
@@ -586,7 +596,7 @@ describe('OrdersService.updateStatus', () => {
   it('order không tồn tại → NotFoundException', async () => {
     const { prisma, orderFindUnique } = createUpdateStatusPrismaMock();
     orderFindUnique.mockResolvedValueOnce(null);
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     await expect(
       service.updateStatus('missing', { status: 'CONFIRMED' }, 'admin-1'),
@@ -604,12 +614,158 @@ describe('OrdersService.updateStatus', () => {
       items: [],
     });
     orderUpdateMany.mockResolvedValue({ count: 0 });
-    const service = new OrdersService(prisma);
+    const service = new OrdersService(prisma, fakeConfig());
 
     await expect(
       service.updateStatus('order-1', { status: 'CONFIRMED' }, 'admin-1'),
     ).rejects.toThrow(
       'Đơn hàng vừa được cập nhật bởi thao tác khác, vui lòng thử lại.',
     );
+  });
+
+  it('CONFIRMED → PACKING → HANDED_OVER: hợp lệ, không đụng tồn kho/paymentStatus', async () => {
+    for (const [from, to] of [
+      ['CONFIRMED', 'PACKING'],
+      ['PACKING', 'HANDED_OVER'],
+    ] as const) {
+      const { prisma, orderFindUnique, orderUpdateMany, stockMovementCreate } =
+        createUpdateStatusPrismaMock();
+      orderFindUnique
+        .mockResolvedValueOnce({
+          id: 'order-1',
+          orderCode: 'DH20260821ABCDEF',
+          status: from,
+          paymentMethod: 'COD',
+          items: [],
+        })
+        .mockResolvedValueOnce(minimalFindOneRow({ status: to }));
+      const service = new OrdersService(prisma, fakeConfig());
+
+      await service.updateStatus('order-1', { status: to }, 'admin-1');
+
+      expect(stockMovementCreate).not.toHaveBeenCalled();
+      expect(orderUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'order-1', status: from },
+        data: { status: to },
+      });
+    }
+  });
+
+  it('→ CANCELLED vẫn hợp lệ từ PACKING/HANDED_OVER (chưa bắt đầu giao thì còn hủy được)', async () => {
+    for (const from of ['PACKING', 'HANDED_OVER'] as const) {
+      const { prisma, orderFindUnique, stockMovementCreate } =
+        createUpdateStatusPrismaMock();
+      orderFindUnique
+        .mockResolvedValueOnce({
+          id: 'order-1',
+          orderCode: 'DH20260821ABCDEF',
+          status: from,
+          paymentMethod: 'COD',
+          items: [{ productVariantId: 'variant-1', quantity: 1 }],
+        })
+        .mockResolvedValueOnce(minimalFindOneRow({ status: 'CANCELLED' }));
+      const service = new OrdersService(prisma, fakeConfig());
+
+      await service.updateStatus(
+        'order-1',
+        { status: 'CANCELLED', note: 'Khách đổi ý' },
+        'admin-1',
+      );
+
+      expect(stockMovementCreate).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  describe('notifyCustomerStatusChange (gửi email báo khách hàng qua backend-user)', () => {
+    let fetchSpy: jest.SpiedFunction<typeof fetch>;
+
+    beforeEach(() => {
+      fetchSpy = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValue({ ok: true } as Response);
+    });
+
+    afterEach(() => {
+      fetchSpy.mockRestore();
+    });
+
+    it('có INTERNAL_NOTIFY_KEY → gọi fetch đúng URL/header/body, KHÔNG chặn kết quả updateStatus', async () => {
+      const { prisma, orderFindUnique } = createUpdateStatusPrismaMock();
+      orderFindUnique
+        .mockResolvedValueOnce({
+          id: 'order-1',
+          orderCode: 'DH20260821ABCDEF',
+          status: 'PENDING',
+          paymentMethod: 'COD',
+          items: [],
+        })
+        .mockResolvedValueOnce(minimalFindOneRow({ status: 'CONFIRMED' }));
+      const service = new OrdersService(
+        prisma,
+        fakeConfig({
+          INTERNAL_NOTIFY_KEY: 'test-key',
+          BACKEND_USER_BASE_URL: 'http://backend-user.test',
+        }),
+      );
+
+      const result = await service.updateStatus(
+        'order-1',
+        { status: 'CONFIRMED' },
+        'admin-1',
+      );
+
+      expect(result).toBeDefined();
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://backend-user.test/internal/orders/DH20260821ABCDEF/status-notification',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-key': 'test-key',
+          },
+          body: JSON.stringify({ status: 'CONFIRMED', note: null }),
+        },
+      );
+    });
+
+    it('thiếu INTERNAL_NOTIFY_KEY → không gọi fetch, không throw', async () => {
+      const { prisma, orderFindUnique } = createUpdateStatusPrismaMock();
+      orderFindUnique
+        .mockResolvedValueOnce({
+          id: 'order-1',
+          orderCode: 'DH20260821ABCDEF',
+          status: 'PENDING',
+          paymentMethod: 'COD',
+          items: [],
+        })
+        .mockResolvedValueOnce(minimalFindOneRow({ status: 'CONFIRMED' }));
+      const service = new OrdersService(prisma, fakeConfig());
+
+      await service.updateStatus('order-1', { status: 'CONFIRMED' }, 'admin-1');
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('fetch reject (backend-user down) → updateStatus vẫn thành công, không throw', async () => {
+      fetchSpy.mockRejectedValue(new Error('ECONNREFUSED'));
+      const { prisma, orderFindUnique } = createUpdateStatusPrismaMock();
+      orderFindUnique
+        .mockResolvedValueOnce({
+          id: 'order-1',
+          orderCode: 'DH20260821ABCDEF',
+          status: 'PENDING',
+          paymentMethod: 'COD',
+          items: [],
+        })
+        .mockResolvedValueOnce(minimalFindOneRow({ status: 'CONFIRMED' }));
+      const service = new OrdersService(
+        prisma,
+        fakeConfig({ INTERNAL_NOTIFY_KEY: 'test-key' }),
+      );
+
+      await expect(
+        service.updateStatus('order-1', { status: 'CONFIRMED' }, 'admin-1'),
+      ).resolves.toBeDefined();
+    });
   });
 });
