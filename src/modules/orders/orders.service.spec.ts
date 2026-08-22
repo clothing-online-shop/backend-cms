@@ -457,7 +457,11 @@ describe('OrdersService.updateStatus', () => {
       .mockResolvedValueOnce(minimalFindOneRow({ status: 'CANCELLED' }));
     const service = new OrdersService(prisma);
 
-    await service.updateStatus('order-1', { status: 'CANCELLED' }, 'admin-1');
+    await service.updateStatus(
+      'order-1',
+      { status: 'CANCELLED', note: 'Khách đổi ý không mua nữa' },
+      'admin-1',
+    );
 
     expect(stockMovementCreate).toHaveBeenCalledTimes(2);
     const expectedFirstMovementData = expect.objectContaining({
@@ -546,6 +550,36 @@ describe('OrdersService.updateStatus', () => {
     }
     expect(caught).toBeInstanceOf(BadRequestException);
     expect(caught?.getResponse()).toMatchObject({ code: 1802 });
+    expect(orderUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('→ CANCELLED không kèm note (hoặc note toàn khoảng trắng) → BadRequestException kèm code ORDER_CANCEL_REASON_REQUIRED', async () => {
+    const { prisma, orderFindUnique, orderUpdateMany, stockMovementCreate } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique.mockResolvedValue({
+      id: 'order-1',
+      orderCode: 'DH20260821ABCDEF',
+      status: 'PENDING',
+      paymentMethod: 'COD',
+      items: [],
+    });
+    const service = new OrdersService(prisma);
+
+    for (const note of [undefined, '   ']) {
+      let caught: BadRequestException | undefined;
+      try {
+        await service.updateStatus(
+          'order-1',
+          { status: 'CANCELLED', note },
+          'admin-1',
+        );
+      } catch (err) {
+        caught = err as BadRequestException;
+      }
+      expect(caught).toBeInstanceOf(BadRequestException);
+      expect(caught?.getResponse()).toMatchObject({ code: 1803 });
+    }
+    expect(stockMovementCreate).not.toHaveBeenCalled();
     expect(orderUpdateMany).not.toHaveBeenCalled();
   });
 

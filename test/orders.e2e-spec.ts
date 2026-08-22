@@ -381,13 +381,23 @@ describe('Orders — GET /orders (e2e)', () => {
       .expect(400);
   });
 
+  it('PATCH /orders/:id/status — hủy đơn (CANCELLED) không kèm lý do → 400', async () => {
+    const { order } = await createOrderWithItem('PENDING', 'COD');
+
+    await request(app.getHttpServer())
+      .patch(`/orders/${order.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'CANCELLED' })
+      .expect(400);
+  });
+
   it('PATCH /orders/:id/status — hủy đơn (CANCELLED): tự động hoàn kho', async () => {
     const { order, variant } = await createOrderWithItem('PENDING', 'COD');
 
     await request(app.getHttpServer())
       .patch(`/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'CANCELLED' })
+      .send({ status: 'CANCELLED', note: 'Khách đổi ý không mua nữa' })
       .expect(200);
 
     const updatedVariant = await prisma.productVariant.findUniqueOrThrow({

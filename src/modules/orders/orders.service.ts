@@ -177,6 +177,16 @@ export class OrdersService {
       });
     }
 
+    // FE chỉ bắt buộc nhập lý do khi hủy đơn ở phía client (validate UX) — API vẫn phải tự
+    // ràng buộc lại, không thì client khác (Swagger, script...) hủy đơn thẳng qua API mà
+    // không ghi lý do, hỏng luôn mục đích của cột "Lý do hủy" ở màn danh sách.
+    if (dto.status === OrderStatus.CANCELLED && !dto.note?.trim()) {
+      throw new BadRequestException({
+        message: 'Vui lòng nhập lý do khi hủy đơn.',
+        code: ErrorCode.ORDER_CANCEL_REASON_REQUIRED,
+      });
+    }
+
     // Hoàn lại đúng số lượng đã trừ lúc tạo đơn — đơn hủy không nên giữ hàng "mất tích"
     // trong kho, admin bán lại được ngay. Không lọc theo Product.isDelete (khác
     // InventoryService.lockVariant()): hoàn kho là sửa đúng số tồn vật lý, không liên quan

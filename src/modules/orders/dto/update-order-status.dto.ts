@@ -11,7 +11,8 @@ export class UpdateOrderStatusDto {
   status!: OrderStatus;
 
   @ApiPropertyOptional({
-    description: 'Ghi chú/lý do đổi trạng thái (vd lý do hủy đơn) — tuỳ chọn',
+    description:
+      'Ghi chú/lý do đổi trạng thái — tuỳ chọn, RIÊNG khi status=CANCELLED thì bắt buộc (validate ở service, không phải class-validator vì phụ thuộc field status)',
   })
   @IsOptional()
   @IsString()
