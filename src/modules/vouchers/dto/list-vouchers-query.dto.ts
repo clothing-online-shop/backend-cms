@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { DiscountType } from '@prisma/client';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { VoucherStatus } from '../voucher-status.enum';
 
@@ -14,4 +15,9 @@ export class ListVouchersQueryDto {
   @IsOptional()
   @IsEnum(VoucherStatus)
   status?: VoucherStatus;
+
+  @ApiPropertyOptional({ enum: DiscountType })
+  @IsOptional()
+  @IsEnum(DiscountType)
+  discountType?: DiscountType;
 }

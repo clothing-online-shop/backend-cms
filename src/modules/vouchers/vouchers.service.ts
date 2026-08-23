@@ -5,23 +5,31 @@ import {
 } from '@nestjs/common';
 import { DiscountType, Prisma, Voucher } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { CreateVoucherDto } from './dto/create-voucher.dto';
 import { UpdateVoucherDto } from './dto/update-voucher.dto';
 import { ListVouchersQueryDto } from './dto/list-vouchers-query.dto';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { VoucherStatus } from './voucher-status.enum';
 import { assertDateRange } from '../../common/utils/date.util';
+import { assertImagePublicIdAligned } from '../../common/utils/image-pairing.util';
 
 export type VoucherWithStatus = Voucher & { status: VoucherStatus };
 
 @Injectable()
 export class VouchersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   async findAll(query: ListVouchersQueryDto): Promise<VoucherWithStatus[]> {
     const where: Prisma.VoucherWhereInput = {};
     if (query.search) {
       where.code = { contains: query.search, mode: 'insensitive' };
+    }
+    if (query.discountType) {
+      where.discountType = query.discountType;
     }
 
     const vouchers = await this.prisma.voucher.findMany({
@@ -48,7 +56,7 @@ export class VouchersService {
       dto.discountValue,
       dto.maxDiscountAmount,
     );
-    if (dto.startsAt && dto.expiresAt) {
+    if (dto.expiresAt) {
       assertDateRange(dto.startsAt, dto.expiresAt);
     }
     await this.assertCodeNotTaken(code);
@@ -56,11 +64,13 @@ export class VouchersService {
     const voucher = await this.prisma.voucher.create({
       data: {
         code,
+        imageUrl: dto.imageUrl,
+        imagePublicId: dto.imagePublicId,
         discountType: dto.discountType,
         discountValue: dto.discountValue,
         maxDiscountAmount: dto.maxDiscountAmount,
         minOrderValue: dto.minOrderValue ?? 0,
-        startsAt: dto.startsAt ? new Date(dto.startsAt) : undefined,
+        startsAt: new Date(dto.startsAt),
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
         usageLimit: dto.usageLimit,
         perCustomerLimit: dto.perCustomerLimit,
@@ -71,6 +81,10 @@ export class VouchersService {
   }
 
   async update(id: string, dto: UpdateVoucherDto): Promise<VoucherWithStatus> {
+    assertImagePublicIdAligned(dto.imageUrl, dto.imagePublicId, {
+      image: 'imageUrl',
+      imagePublicId: 'imagePublicId',
+    });
     const existing = await this.findExisting(id);
 
     const discountType = dto.discountType ?? existing.discountType;
@@ -86,11 +100,14 @@ export class VouchersService {
       maxDiscountAmount,
     );
 
-    const startsAt = dto.startsAt ?? existing.startsAt?.toISOString();
+    const startsAt = dto.startsAt ?? existing.startsAt.toISOString();
     const expiresAt = dto.expiresAt ?? existing.expiresAt?.toISOString();
-    if (startsAt && expiresAt) {
+    if (expiresAt) {
       assertDateRange(startsAt, expiresAt);
     }
+
+    const imageChanged =
+      dto.imageUrl !== undefined && dto.imageUrl !== existing.imageUrl;
 
     const updated = await this.prisma.voucher.update({
       where: { id },
@@ -109,8 +126,25 @@ export class VouchersService {
         usageLimit: dto.usageLimit,
         perCustomerLimit: dto.perCustomerLimit,
         isActive: dto.isActive,
+        // undefined = giữ nguyên ảnh cũ; null = admin chủ động gỡ ảnh; string = ảnh mới.
+        imageUrl:
+          dto.imageUrl === undefined ? undefined : (dto.imageUrl ?? null),
+        imagePublicId:
+          dto.imagePublicId === undefined
+            ? undefined
+            : (dto.imagePublicId ?? null),
       },
     });
+
+    // Best-effort, chạy SAU khi update DB đã thành công — dọn trước mà update sau đó lỗi
+    // thì ảnh cũ đã bị xóa vĩnh viễn trên Cloudinary trong khi DB vẫn còn trỏ tới URL đã
+    // chết (giống BannersService.update()).
+    if (imageChanged && existing.imagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.imagePublicId)
+        .catch(() => undefined);
+    }
+
     return withStatus(updated);
   }
 
@@ -133,6 +167,12 @@ export class VouchersService {
       });
     }
     await this.prisma.voucher.delete({ where: { id } });
+
+    if (existing.imagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.imagePublicId)
+        .catch(() => undefined);
+    }
   }
 
   private assertValidDiscountFields(
@@ -193,15 +233,19 @@ function withStatus(voucher: Voucher): VoucherWithStatus {
   return { ...voucher, status: deriveVoucherStatus(voucher) };
 }
 
+// Chỉ 2 trạng thái hiển thị (theo yêu cầu) — ACTIVE nghĩa là "dùng được ngay bây giờ", mọi
+// lý do khác (tắt tay, chưa tới ngày, đã hết hạn, đã hết lượt) đều gộp INACTIVE. Chi tiết lý
+// do cụ thể vẫn xem được qua startsAt/expiresAt/usageLimit hiển thị riêng ở FE, không mất
+// thông tin so với bản có 5 trạng thái trước đây.
 function deriveVoucherStatus(voucher: Voucher): VoucherStatus {
   if (!voucher.isActive) return VoucherStatus.INACTIVE;
 
   const now = new Date();
-  if (voucher.startsAt && now < voucher.startsAt) return VoucherStatus.UPCOMING;
+  if (now < voucher.startsAt) return VoucherStatus.INACTIVE;
   if (voucher.expiresAt && now > voucher.expiresAt)
-    return VoucherStatus.EXPIRED;
+    return VoucherStatus.INACTIVE;
   if (voucher.usageLimit !== null && voucher.usedCount >= voucher.usageLimit) {
-    return VoucherStatus.OUT_OF_USAGE;
+    return VoucherStatus.INACTIVE;
   }
   return VoucherStatus.ACTIVE;
 }

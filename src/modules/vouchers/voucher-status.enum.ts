@@ -1,10 +1,9 @@
-// Trạng thái hiển thị cho admin, suy ra từ isActive/startsAt/expiresAt/usageLimit — không
-// phải cột lưu trong DB (khác isActive, cột đó chỉ là 1 trong các yếu tố quyết định trạng
-// thái hiển thị này).
+// Trạng thái hiển thị cho admin — chỉ 2 giá trị theo yêu cầu, suy ra từ isActive VÀ
+// startsAt/expiresAt/usageLimit (khác cột isActive trong DB, cột đó chỉ là 1 trong các yếu
+// tố quyết định). ACTIVE = dùng được ngay bây giờ; mọi lý do khác (tắt tay, chưa tới ngày,
+// đã hết hạn, đã hết lượt) đều gộp chung INACTIVE — chi tiết lý do vẫn xem được qua các cột
+// riêng (thời hạn, lượt dùng) ở màn danh sách, không mất thông tin.
 export enum VoucherStatus {
   ACTIVE = 'ACTIVE',
   INACTIVE = 'INACTIVE',
-  UPCOMING = 'UPCOMING',
-  EXPIRED = 'EXPIRED',
-  OUT_OF_USAGE = 'OUT_OF_USAGE',
 }

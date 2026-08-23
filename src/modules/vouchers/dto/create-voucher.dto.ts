@@ -19,6 +19,20 @@ export class CreateVoucherDto {
   @MinLength(3)
   code!: string;
 
+  @ApiPropertyOptional({
+    description: 'Ảnh minh họa voucher, upload qua /upload/image',
+  })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'publicId Cloudinary của ảnh, đi kèm imageUrl',
+  })
+  @IsOptional()
+  @IsString()
+  imagePublicId?: string;
+
   @ApiProperty({ enum: DiscountType })
   @IsEnum(DiscountType)
   discountType!: DiscountType;
@@ -48,10 +62,11 @@ export class CreateVoucherDto {
   @Min(0)
   minOrderValue?: number;
 
-  @ApiPropertyOptional({ description: 'Bỏ trống = có hiệu lực ngay' })
-  @IsOptional()
+  @ApiProperty({
+    description: 'Bắt buộc chọn — không còn khái niệm "hiệu lực ngay".',
+  })
   @IsDateString()
-  startsAt?: string;
+  startsAt!: string;
 
   @ApiPropertyOptional({ description: 'Bỏ trống = không giới hạn thời hạn' })
   @IsOptional()
