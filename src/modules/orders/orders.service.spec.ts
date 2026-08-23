@@ -144,17 +144,26 @@ describe('OrdersService.findAll', () => {
       Prisma.OrderWhereInput[] | undefined;
     expect(andConditions).toContainEqual({ status: 'CONFIRMED' });
     expect(andConditions).toContainEqual({ paymentMethod: 'VNPAY' });
-    expect(andConditions).toContainEqual({
-      createdAt: { gte: new Date('2026-08-01') },
-    });
+    const fromCondition = andConditions?.find((item) => {
+      const createdAt = (item as Record<string, unknown>).createdAt as
+        { gte?: Date } | undefined;
+      return createdAt?.gte !== undefined;
+    }) as { createdAt: { gte: Date } } | undefined;
     const toCondition = andConditions?.find((item) => {
       const createdAt = (item as Record<string, unknown>).createdAt as
         { lte?: Date } | undefined;
       return createdAt?.lte !== undefined;
     }) as { createdAt: { lte: Date } } | undefined;
-    expect(toCondition?.createdAt.lte.getFullYear()).toBe(2026);
-    expect(toCondition?.createdAt.lte.getHours()).toBe(23);
-    expect(toCondition?.createdAt.lte.getMinutes()).toBe(59);
+    // So bằng toISOString() (UTC tuyệt đối, không phụ thuộc TZ máy chạy test) — gte/lte phải
+    // neo theo giờ VN tường minh (xem toInclusiveStartOfDay()/toInclusiveEndOfDay() trong
+    // date.util.ts), không phải giờ local của máy/server chạy code, nếu không 2 đầu mút
+    // from/to của cùng 1 khoảng lọc sẽ lệch múi giờ nhau trên server không đặt TZ=VN.
+    expect(fromCondition?.createdAt.gte.toISOString()).toBe(
+      '2026-07-31T17:00:00.000Z',
+    );
+    expect(toCondition?.createdAt.lte.toISOString()).toBe(
+      '2026-08-21T16:59:59.999Z',
+    );
     expect(capturedCountWhere).toEqual(capturedFindManyWhere);
   });
 
@@ -353,6 +362,33 @@ describe('OrdersService.findOne', () => {
   });
 });
 
+// Bản ghi tối thiểu findOne() cần để không throw khi map (.items/.statusHistories) — dùng
+// chung giữa OrdersService.updateStatus (lệnh gọi thứ 2, sau khi transaction commit) và
+// OrdersService.confirmBankTransfer (findOne() gọi lại sau khi đổi paymentStatus). Không đại
+// diện dữ liệu thật, chỉ đủ field để .map() không crash.
+function minimalFindOneRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'order-1',
+    orderCode: 'DH20260821ABCDEF',
+    status: 'CONFIRMED',
+    paymentMethod: 'COD',
+    paymentStatus: 'UNPAID',
+    totalAmount: new Prisma.Decimal(150000),
+    shippingAddress: 'A',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    user: {
+      id: 'user-1',
+      fullName: 'A',
+      email: 'a@example.com',
+      phone: null,
+    },
+    items: [],
+    statusHistories: [],
+    ...overrides,
+  };
+}
+
 describe('OrdersService.updateStatus', () => {
   function createUpdateStatusPrismaMock() {
     const orderFindUnique = jest.fn();
@@ -381,31 +417,6 @@ describe('OrdersService.updateStatus', () => {
       productVariantUpdate,
       orderStatusHistoryCreate,
       transaction,
-    };
-  }
-
-  // Bản ghi tối thiểu findOne() (lệnh gọi thứ 2, sau khi transaction commit) cần để không
-  // throw khi map — không đại diện dữ liệu thật, chỉ đủ field để .map() không crash.
-  function minimalFindOneRow(overrides: Partial<Record<string, unknown>> = {}) {
-    return {
-      id: 'order-1',
-      orderCode: 'DH20260821ABCDEF',
-      status: 'CONFIRMED',
-      paymentMethod: 'COD',
-      paymentStatus: 'UNPAID',
-      totalAmount: new Prisma.Decimal(150000),
-      shippingAddress: 'A',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      user: {
-        id: 'user-1',
-        fullName: 'A',
-        email: 'a@example.com',
-        phone: null,
-      },
-      items: [],
-      statusHistories: [],
-      ...overrides,
     };
   }
 
@@ -492,6 +503,63 @@ describe('OrdersService.updateStatus', () => {
     });
   });
 
+  it('SHIPPING → CANCELLED: KHÔNG tự hoàn kho (hàng đang ở đơn vị vận chuyển)', async () => {
+    const {
+      prisma,
+      orderFindUnique,
+      stockMovementCreate,
+      productVariantUpdate,
+    } = createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'SHIPPING',
+        paymentMethod: 'COD',
+        items: [{ productVariantId: 'variant-1', quantity: 2 }],
+      })
+      .mockResolvedValueOnce(minimalFindOneRow({ status: 'CANCELLED' }));
+    const service = new OrdersService(prisma, fakeConfig());
+
+    await service.updateStatus(
+      'order-1',
+      { status: 'CANCELLED', note: 'Khách từ chối nhận hàng' },
+      'admin-1',
+    );
+
+    expect(stockMovementCreate).not.toHaveBeenCalled();
+    expect(productVariantUpdate).not.toHaveBeenCalled();
+  });
+
+  it('CANCELLED cho đơn đã PAID: paymentStatus chuyển sang REFUNDED', async () => {
+    const { prisma, orderFindUnique, orderUpdateMany } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'CONFIRMED',
+        paymentMethod: 'BANK_TRANSFER',
+        paymentStatus: 'PAID',
+        items: [],
+      })
+      .mockResolvedValueOnce(
+        minimalFindOneRow({ status: 'CANCELLED', paymentStatus: 'REFUNDED' }),
+      );
+    const service = new OrdersService(prisma, fakeConfig());
+
+    await service.updateStatus(
+      'order-1',
+      { status: 'CANCELLED', note: 'Khách đổi ý không mua nữa' },
+      'admin-1',
+    );
+
+    expect(orderUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'order-1', status: 'CONFIRMED' },
+      data: { status: 'CANCELLED', paymentStatus: 'REFUNDED' },
+    });
+  });
+
   it('SHIPPING → COMPLETED cho đơn COD: tự động paymentStatus = PAID', async () => {
     const { prisma, orderFindUnique, orderUpdateMany } =
       createUpdateStatusPrismaMock();
@@ -516,7 +584,7 @@ describe('OrdersService.updateStatus', () => {
     });
   });
 
-  it('SHIPPING → COMPLETED cho đơn VNPAY: KHÔNG tự đổi paymentStatus', async () => {
+  it('SHIPPING → COMPLETED cho đơn VNPAY đã PAID: KHÔNG tự đổi lại paymentStatus', async () => {
     const { prisma, orderFindUnique, orderUpdateMany } =
       createUpdateStatusPrismaMock();
     orderFindUnique
@@ -525,6 +593,7 @@ describe('OrdersService.updateStatus', () => {
         orderCode: 'DH20260821ABCDEF',
         status: 'SHIPPING',
         paymentMethod: 'VNPAY',
+        paymentStatus: 'PAID',
         items: [],
       })
       .mockResolvedValueOnce(
@@ -538,6 +607,30 @@ describe('OrdersService.updateStatus', () => {
       where: { id: 'order-1', status: 'SHIPPING' },
       data: { status: 'COMPLETED' },
     });
+  });
+
+  it('SHIPPING → COMPLETED cho đơn VNPAY CHƯA thanh toán → BadRequestException kèm code ORDER_COMPLETE_REQUIRES_PAYMENT', async () => {
+    const { prisma, orderFindUnique, orderUpdateMany } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique.mockResolvedValueOnce({
+      id: 'order-1',
+      orderCode: 'DH20260821ABCDEF',
+      status: 'SHIPPING',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'UNPAID',
+      items: [],
+    });
+    const service = new OrdersService(prisma, fakeConfig());
+
+    let caught: BadRequestException | undefined;
+    try {
+      await service.updateStatus('order-1', { status: 'COMPLETED' }, 'admin-1');
+    } catch (err) {
+      caught = err as BadRequestException;
+    }
+    expect(caught).toBeInstanceOf(BadRequestException);
+    expect(caught?.getResponse()).toMatchObject({ code: 1804 });
+    expect(orderUpdateMany).not.toHaveBeenCalled();
   });
 
   it('chuyển sai luật (PENDING → COMPLETED) → BadRequestException kèm code ORDER_INVALID_STATUS_TRANSITION', async () => {
@@ -774,11 +867,15 @@ function amountDecimal(value: number) {
   return { toNumber: () => value };
 }
 
-function bankTransferOrder(overrides: Partial<{ paymentStatus: string }> = {}) {
+function bankTransferOrder(
+  overrides: Partial<{ paymentStatus: string; status: string }> = {},
+) {
   return {
     id: 'order-1',
+    orderCode: 'DH20260821ABCDEF',
     paymentMethod: 'BANK_TRANSFER',
     paymentStatus: overrides.paymentStatus ?? 'UNPAID',
+    status: overrides.status ?? 'PENDING',
     totalAmount: amountDecimal(389000),
   };
 }
@@ -793,14 +890,12 @@ interface PaymentTransactionCreateArgs {
 }
 
 function createMocks() {
+  // 2 lần gọi prisma.order.findUnique: lần 1 đọc order trước khi xử lý, lần 2 nằm trong
+  // this.findOne(id) gọi lại SAU khi transaction commit (confirmBankTransfer giờ trả về
+  // đúng shape findOne() thay vì bản ghi Order thô, khớp với updateStatus()) — mỗi test
+  // set 2 giá trị qua .mockResolvedValueOnce() nối tiếp nhau.
   const findUnique = jest.fn();
-  const update = jest.fn().mockImplementation(({ data }) =>
-    Promise.resolve({
-      ...bankTransferOrder(),
-      ...data,
-      totalAmount: amountDecimal(389000),
-    }),
-  );
+  const updateMany = jest.fn().mockResolvedValue({ count: 1 });
   let paymentTransactionCreateArgs: PaymentTransactionCreateArgs | undefined;
   const paymentTransactionCreate = jest
     .fn()
@@ -808,10 +903,12 @@ function createMocks() {
       paymentTransactionCreateArgs = args;
       return Promise.resolve({});
     });
+  const orderStatusHistoryCreate = jest.fn();
 
   const tx = {
-    order: { update },
+    order: { updateMany },
     paymentTransaction: { create: paymentTransactionCreate },
+    orderStatusHistory: { create: orderStatusHistoryCreate },
   };
 
   const prisma = {
@@ -822,8 +919,9 @@ function createMocks() {
   return {
     prisma,
     findUnique,
-    update,
+    updateMany,
     paymentTransactionCreate,
+    orderStatusHistoryCreate,
     getPaymentTransactionCreateArgs: () => paymentTransactionCreateArgs,
   };
 }
@@ -834,9 +932,9 @@ describe('OrdersService.confirmBankTransfer', () => {
     findUnique.mockResolvedValue(null);
     const service = new OrdersService(prisma, fakeConfig());
 
-    await expect(service.confirmBankTransfer('order-1')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.confirmBankTransfer('order-1', 'admin-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('không phải đơn chuyển khoản thì báo lỗi', async () => {
@@ -847,33 +945,67 @@ describe('OrdersService.confirmBankTransfer', () => {
     });
     const service = new OrdersService(prisma, fakeConfig());
 
-    await expect(service.confirmBankTransfer('order-1')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.confirmBankTransfer('order-1', 'admin-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('đơn đã PAID rồi thì báo lỗi, không xác nhận lại', async () => {
-    const { prisma, findUnique, update } = createMocks();
+    const { prisma, findUnique, updateMany } = createMocks();
     findUnique.mockResolvedValue(bankTransferOrder({ paymentStatus: 'PAID' }));
     const service = new OrdersService(prisma, fakeConfig());
 
-    await expect(service.confirmBankTransfer('order-1')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-    expect(update).not.toHaveBeenCalled();
+    await expect(
+      service.confirmBankTransfer('order-1', 'admin-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
-  it('xác nhận thành công: PAID + CONFIRMED, ghi PaymentTransaction SUCCESS, totalAmount là number', async () => {
-    const { prisma, findUnique, update, getPaymentTransactionCreateArgs } =
-      createMocks();
-    findUnique.mockResolvedValue(bankTransferOrder());
+  it('đơn đã bị hủy thì báo lỗi, không "hồi sinh" lại CONFIRMED', async () => {
+    const { prisma, findUnique, updateMany } = createMocks();
+    findUnique.mockResolvedValue(bankTransferOrder({ status: 'CANCELLED' }));
     const service = new OrdersService(prisma, fakeConfig());
 
-    const result = await service.confirmBankTransfer('order-1');
+    await expect(
+      service.confirmBankTransfer('order-1', 'admin-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(updateMany).not.toHaveBeenCalled();
+  });
 
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 'order-1' },
+  it('xác nhận thành công (đơn đang PENDING): PAID + CONFIRMED, ghi PaymentTransaction SUCCESS + lịch sử trạng thái, totalAmount là number', async () => {
+    const {
+      prisma,
+      findUnique,
+      updateMany,
+      orderStatusHistoryCreate,
+      getPaymentTransactionCreateArgs,
+    } = createMocks();
+    findUnique.mockResolvedValueOnce(bankTransferOrder()).mockResolvedValueOnce(
+      minimalFindOneRow({
+        status: 'CONFIRMED',
+        paymentMethod: 'BANK_TRANSFER',
+        paymentStatus: 'PAID',
+        totalAmount: amountDecimal(389000),
+      }),
+    );
+    const service = new OrdersService(prisma, fakeConfig());
+
+    const result = await service.confirmBankTransfer('order-1', 'admin-1');
+
+    // where kèm CẢ status lẫn paymentStatus cũ — chốt lại đúng fix của bug đã tìm thấy
+    // (thiếu `status` trong where từng khiến 1 race condition có thể "hồi sinh" đơn đã hủy).
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'order-1', status: 'PENDING', paymentStatus: 'UNPAID' },
       data: { paymentStatus: 'PAID', status: 'CONFIRMED' },
+    });
+    const expectedHistoryData = expect.objectContaining({
+      orderId: 'order-1',
+      fromStatus: 'PENDING',
+      toStatus: 'CONFIRMED',
+      changedById: 'admin-1',
+    }) as unknown as Record<string, unknown>;
+    expect(orderStatusHistoryCreate).toHaveBeenCalledWith({
+      data: expectedHistoryData,
     });
     const createArgs = getPaymentTransactionCreateArgs();
     expect(createArgs?.data.orderId).toBe('order-1');
@@ -882,5 +1014,39 @@ describe('OrdersService.confirmBankTransfer', () => {
     expect(createArgs?.data.amount.toNumber()).toBe(389000);
     expect(result.totalAmount).toBe(389000);
     expect(typeof result.totalAmount).toBe('number');
+  });
+
+  it('xác nhận muộn khi đơn đã ở PACKING trở lên: chỉ đổi paymentStatus, KHÔNG kéo lùi status, nhưng VẪN ghi lịch sử', async () => {
+    const { prisma, findUnique, updateMany, orderStatusHistoryCreate } =
+      createMocks();
+    findUnique
+      .mockResolvedValueOnce(bankTransferOrder({ status: 'PACKING' }))
+      .mockResolvedValueOnce(
+        minimalFindOneRow({
+          status: 'PACKING',
+          paymentMethod: 'BANK_TRANSFER',
+          paymentStatus: 'PAID',
+        }),
+      );
+    const service = new OrdersService(prisma, fakeConfig());
+
+    await service.confirmBankTransfer('order-1', 'admin-1');
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'order-1', status: 'PACKING', paymentStatus: 'UNPAID' },
+      data: { paymentStatus: 'PAID', status: 'PACKING' },
+    });
+    // Trước đây bị bỏ sót — 1 lần xác nhận thanh toán muộn (status không đổi) không để lại
+    // dấu vết nào trên tab "Lịch sử trạng thái" ở OrderDetail.tsx. Giờ luôn ghi, kể cả khi
+    // fromStatus === toStatus.
+    const expectedLateHistoryData = expect.objectContaining({
+      orderId: 'order-1',
+      fromStatus: 'PACKING',
+      toStatus: 'PACKING',
+      changedById: 'admin-1',
+    }) as unknown as Record<string, unknown>;
+    expect(orderStatusHistoryCreate).toHaveBeenCalledWith({
+      data: expectedLateHistoryData,
+    });
   });
 });

@@ -14,7 +14,10 @@ import {
   buildSkipTake,
   buildPageMeta,
 } from '../../common/utils/pagination.util';
-import { toInclusiveEndOfDay } from '../../common/utils/date.util';
+import {
+  toInclusiveEndOfDay,
+  toInclusiveStartOfDay,
+} from '../../common/utils/date.util';
 import { applyStockMovement } from '../../common/utils/stock-movement.util';
 
 const LOW_STOCK_THRESHOLD_KEY = 'lowStockThreshold';
@@ -212,7 +215,9 @@ export class InventoryService {
           ? { productVariant: { productId: query.productId } }
           : {},
         query.type ? { type: query.type } : {},
-        query.from ? { createdAt: { gte: new Date(query.from) } } : {},
+        query.from
+          ? { createdAt: { gte: toInclusiveStartOfDay(query.from) } }
+          : {},
         query.to ? { createdAt: { lte: toInclusiveEndOfDay(query.to) } } : {},
       ],
     };
