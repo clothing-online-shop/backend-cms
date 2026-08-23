@@ -18,6 +18,7 @@ import { CmsModule } from './modules/cms/cms.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { BannersModule } from './modules/banners/banners.module';
 import { LocationsModule } from './modules/locations/locations.module';
+import { VouchersModule } from './modules/vouchers/vouchers.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { LocationsModule } from './modules/locations/locations.module';
     UploadModule,
     BannersModule,
     LocationsModule,
+    VouchersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

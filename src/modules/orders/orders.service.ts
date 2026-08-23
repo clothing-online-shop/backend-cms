@@ -85,6 +85,7 @@ export class OrdersService {
         include: {
           _count: { select: { items: true } },
           user: { select: { fullName: true } },
+          voucher: { select: { code: true } },
           // Chỉ đơn CANCELLED mới có dòng khớp — order chưa từng hủy thì mảng rỗng, map
           // bên dưới tự trả null. take: 1 vì 1 đơn chỉ hủy được đúng 1 lần (CANCELLED là
           // trạng thái cuối, không hủy lại được nữa — xem ORDER_STATUS_TRANSITIONS).
@@ -109,6 +110,8 @@ export class OrdersService {
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
         totalAmount: order.totalAmount.toNumber(),
+        discountAmount: order.discountAmount.toNumber(),
+        voucherCode: order.voucher?.code ?? null,
         shippingAddress: order.shippingAddress,
         customerName: order.user.fullName,
         itemCount: order._count.items,
@@ -133,6 +136,7 @@ export class OrdersService {
         user: {
           select: { id: true, fullName: true, email: true, phone: true },
         },
+        voucher: { select: { code: true } },
       },
     });
     if (!order) {
@@ -149,6 +153,8 @@ export class OrdersService {
       paymentMethod: order.paymentMethod,
       paymentStatus: order.paymentStatus,
       totalAmount: order.totalAmount.toNumber(),
+      discountAmount: order.discountAmount.toNumber(),
+      voucherCode: order.voucher?.code ?? null,
       shippingAddress: order.shippingAddress,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
@@ -203,6 +209,13 @@ export class OrdersService {
             createdById: userId,
           });
         }
+      }
+
+      if (effects.shouldRestoreVoucherUsage && order.voucherId) {
+        await tx.voucher.update({
+          where: { id: order.voucherId },
+          data: { usedCount: { decrement: 1 } },
+        });
       }
 
       // where kèm status cũ — optimistic concurrency (xem updateOrderIfUnchanged): 1
@@ -295,12 +308,14 @@ export class OrdersService {
       status: OrderStatus;
       paymentMethod: string;
       paymentStatus: PaymentStatus;
+      voucherId: string | null;
     },
     nextStatus: OrderStatus,
   ): {
     shouldRestock: boolean;
     shouldMarkPaid: boolean;
     shouldRevertPayment: boolean;
+    shouldRestoreVoucherUsage: boolean;
   } {
     return {
       // Hoàn lại đúng số lượng đã trừ lúc tạo đơn — đơn hủy không nên giữ hàng "mất tích"
@@ -324,6 +339,13 @@ export class OrdersService {
       shouldRevertPayment:
         nextStatus === OrderStatus.CANCELLED &&
         order.paymentStatus === PaymentStatus.PAID,
+      // Hoàn lại 1 lượt dùng cho voucher (nếu đơn có áp mã) khi hủy đơn — khác hoàn kho, KHÔNG
+      // loại trừ trường hợp hủy từ SHIPPING: voucher không phải hàng vật lý đang ở đơn vị vận
+      // chuyển, đơn không hoàn tất thì không có lý do giữ mất 1 lượt dùng của khách. Luôn đúng
+      // 1 lần/đơn vì CANCELLED là trạng thái cuối (không hủy lại lần 2 được — assertValidTransition
+      // chặn), khớp đúng 1 lần redeem() đã tăng usedCount lúc tạo đơn ở backend-user.
+      shouldRestoreVoucherUsage:
+        nextStatus === OrderStatus.CANCELLED && !!order.voucherId,
     };
   }
 
