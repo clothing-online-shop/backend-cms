@@ -101,6 +101,7 @@ model User {
   wishlistItems      WishlistItem[]
   recentlyViewed     RecentlyViewed[]
   orderStatusChanges OrderStatusHistory[]
+  voucherRedemptions VoucherRedemption[]
 
   @@map("users")
 }
@@ -163,7 +164,7 @@ model District {
   provinceId String
   name       String
 
-  province  Province @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+  province  Province  @relation(fields: [provinceId], references: [id], onDelete: Cascade)
   wards     Ward[]
   addresses Address[]
 
@@ -177,7 +178,7 @@ model Ward {
   districtId String
   name       String
 
-  district  District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  district  District  @relation(fields: [districtId], references: [id], onDelete: Cascade)
   addresses Address[]
 
   @@index([districtId])
@@ -372,20 +373,27 @@ model Order {
   orderCode       String        @unique
   status          OrderStatus   @default(PENDING)
   totalAmount     Decimal       @db.Decimal(12, 2)
+  // Số tiền voucher giảm, đã trừ vào totalAmount (totalAmount = subtotal - discountAmount).
+  // 0 khi đơn không dùng voucher — giữ non-null để khỏi phải check null ở mọi nơi tính toán.
+  discountAmount  Decimal       @default(0) @db.Decimal(12, 2)
+  voucherId       String?
   shippingAddress String
   paymentMethod   String
   paymentStatus   PaymentStatus @default(UNPAID)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  user            User                 @relation(fields: [userId], references: [id])
-  items           OrderItem[]
-  transactions    PaymentTransaction[]
-  statusHistories OrderStatusHistory[]
+  user              User                 @relation(fields: [userId], references: [id])
+  voucher           Voucher?             @relation(fields: [voucherId], references: [id], onDelete: Restrict)
+  items             OrderItem[]
+  transactions      PaymentTransaction[]
+  statusHistories   OrderStatusHistory[]
+  voucherRedemption VoucherRedemption?
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([voucherId])
   @@map("orders")
 }
 
@@ -430,15 +438,55 @@ model OrderStatusHistory {
   @@map("order_status_histories")
 }
 
-model Coupon {
-  id            String       @id @default(cuid())
-  code          String       @unique
-  discountType  DiscountType
-  discountValue Decimal      @db.Decimal(12, 2)
-  expiresAt     DateTime?
-  createdAt     DateTime     @default(now())
+model Voucher {
+  id                String       @id @default(cuid())
+  code              String       @unique
+  // Ảnh minh họa cho voucher (banner quảng bá) — thuần trang trí, không phục vụ logic áp
+  // mã. Optional vì voucher tạo nhanh (vd flash sale) không phải lúc nào cũng có ảnh sẵn.
+  imageUrl          String?
+  imagePublicId     String?
+  discountType      DiscountType
+  discountValue     Decimal      @db.Decimal(12, 2)
+  // Trần số tiền được giảm — chỉ có ý nghĩa khi discountType=PERCENTAGE (giảm theo % không
+  // giới hạn có thể vượt quá dự tính trên đơn giá trị lớn). null = không giới hạn trần.
+  maxDiscountAmount Decimal?     @db.Decimal(12, 2)
+  minOrderValue     Decimal      @default(0) @db.Decimal(12, 2)
+  // Bắt buộc chọn — không có khái niệm "hiệu lực ngay lập tức" nữa, admin phải chủ động
+  // chọn ngày bắt đầu. expiresAt vẫn optional: null = dùng mãi mãi, không hết hạn.
+  startsAt          DateTime
+  expiresAt         DateTime?
+  // null = không giới hạn tổng lượt / không giới hạn lượt mỗi khách.
+  usageLimit        Int?
+  usedCount         Int          @default(0)
+  perCustomerLimit  Int?
+  // Cho phép admin tắt trước hạn mà không cần xóa/sửa expiresAt.
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
-  @@map("coupons")
+  orders      Order[]
+  redemptions VoucherRedemption[]
+
+  @@map("vouchers")
+}
+
+// Ghi lại mỗi lần 1 đơn hàng áp dụng voucher thành công — dùng để đếm lượt/khách (đếm
+// redemption theo voucherId+userId, loại đơn CANCELLED) và audit, tương tự cách
+// OrderStatusHistory ghi lại lịch sử trạng thái đơn.
+model VoucherRedemption {
+  id             String   @id @default(cuid())
+  voucherId      String
+  userId         String
+  orderId        String   @unique
+  discountAmount Decimal  @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([voucherId, userId])
+  @@map("voucher_redemptions")
 }
 
 model Review {

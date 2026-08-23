@@ -32,6 +32,8 @@ function order(overrides: Partial<Record<string, unknown>> = {}) {
     paymentMethod: 'COD',
     paymentStatus: 'UNPAID',
     totalAmount: new Prisma.Decimal(300000),
+    discountAmount: new Prisma.Decimal(0),
+    voucher: null,
     shippingAddress:
       'Nguyễn Văn A - 0900000000 - 123 Đường ABC, Phường 1, Quận 1, TP. Hồ Chí Minh',
     createdAt: new Date('2026-08-21T00:00:00.000Z'),
@@ -58,6 +60,8 @@ describe('OrdersService.findAll', () => {
         paymentMethod: 'COD',
         paymentStatus: 'UNPAID',
         totalAmount: 300000,
+        discountAmount: 0,
+        voucherCode: null,
         shippingAddress:
           'Nguyễn Văn A - 0900000000 - 123 Đường ABC, Phường 1, Quận 1, TP. Hồ Chí Minh',
         customerName: 'Nguyễn Văn A',
@@ -237,6 +241,8 @@ describe('OrdersService.findOne', () => {
       paymentMethod: 'COD',
       paymentStatus: 'UNPAID',
       totalAmount: new Prisma.Decimal(300000),
+      discountAmount: new Prisma.Decimal(0),
+      voucher: null,
       shippingAddress:
         'Nguyễn Văn A - 0900000000 - 123 Đường ABC, Phường 1, Quận 1, TP. Hồ Chí Minh',
       createdAt: new Date('2026-08-21T00:00:00.000Z'),
@@ -296,6 +302,8 @@ describe('OrdersService.findOne', () => {
       paymentMethod: 'COD',
       paymentStatus: 'UNPAID',
       totalAmount: 300000,
+      discountAmount: 0,
+      voucherCode: null,
       shippingAddress:
         'Nguyễn Văn A - 0900000000 - 123 Đường ABC, Phường 1, Quận 1, TP. Hồ Chí Minh',
       createdAt: new Date('2026-08-21T00:00:00.000Z'),
@@ -374,6 +382,8 @@ function minimalFindOneRow(overrides: Partial<Record<string, unknown>> = {}) {
     paymentMethod: 'COD',
     paymentStatus: 'UNPAID',
     totalAmount: new Prisma.Decimal(150000),
+    discountAmount: new Prisma.Decimal(0),
+    voucher: null,
     shippingAddress: 'A',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -396,11 +406,13 @@ describe('OrdersService.updateStatus', () => {
     const stockMovementCreate = jest.fn();
     const productVariantUpdate = jest.fn();
     const orderStatusHistoryCreate = jest.fn();
+    const voucherUpdate = jest.fn().mockResolvedValue({});
     const tx = {
       order: { updateMany: orderUpdateMany },
       stockMovement: { create: stockMovementCreate },
       productVariant: { update: productVariantUpdate },
       orderStatusHistory: { create: orderStatusHistoryCreate },
+      voucher: { update: voucherUpdate },
     };
     const transaction = jest.fn(
       (cb: (tx: unknown) => unknown) => cb(tx) as Promise<unknown>,
@@ -416,6 +428,7 @@ describe('OrdersService.updateStatus', () => {
       stockMovementCreate,
       productVariantUpdate,
       orderStatusHistoryCreate,
+      voucherUpdate,
       transaction,
     };
   }
@@ -767,6 +780,85 @@ describe('OrdersService.updateStatus', () => {
 
       expect(stockMovementCreate).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it('→ CANCELLED cho đơn có áp voucher: hoàn lại đúng 1 lượt dùng (usedCount decrement)', async () => {
+    const { prisma, orderFindUnique, voucherUpdate } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'PENDING',
+        paymentMethod: 'COD',
+        voucherId: 'voucher-1',
+        items: [],
+      })
+      .mockResolvedValueOnce(minimalFindOneRow({ status: 'CANCELLED' }));
+    const service = new OrdersService(prisma, fakeConfig());
+
+    await service.updateStatus(
+      'order-1',
+      { status: 'CANCELLED', note: 'Khách đổi ý' },
+      'admin-1',
+    );
+
+    expect(voucherUpdate).toHaveBeenCalledWith({
+      where: { id: 'voucher-1' },
+      data: { usedCount: { decrement: 1 } },
+    });
+  });
+
+  it('SHIPPING → CANCELLED cho đơn có áp voucher: VẪN hoàn lại lượt voucher dù không hoàn kho (2 quy tắc độc lập nhau)', async () => {
+    const { prisma, orderFindUnique, voucherUpdate, stockMovementCreate } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'SHIPPING',
+        paymentMethod: 'COD',
+        voucherId: 'voucher-1',
+        items: [{ productVariantId: 'variant-1', quantity: 2 }],
+      })
+      .mockResolvedValueOnce(minimalFindOneRow({ status: 'CANCELLED' }));
+    const service = new OrdersService(prisma, fakeConfig());
+
+    await service.updateStatus(
+      'order-1',
+      { status: 'CANCELLED', note: 'Khách từ chối nhận hàng' },
+      'admin-1',
+    );
+
+    expect(stockMovementCreate).not.toHaveBeenCalled();
+    expect(voucherUpdate).toHaveBeenCalledWith({
+      where: { id: 'voucher-1' },
+      data: { usedCount: { decrement: 1 } },
+    });
+  });
+
+  it('→ CANCELLED cho đơn KHÔNG áp voucher (voucherId null): không đụng tới bảng voucher', async () => {
+    const { prisma, orderFindUnique, voucherUpdate } =
+      createUpdateStatusPrismaMock();
+    orderFindUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderCode: 'DH20260821ABCDEF',
+        status: 'PENDING',
+        paymentMethod: 'COD',
+        voucherId: null,
+        items: [],
+      })
+      .mockResolvedValueOnce(minimalFindOneRow({ status: 'CANCELLED' }));
+    const service = new OrdersService(prisma, fakeConfig());
+
+    await service.updateStatus(
+      'order-1',
+      { status: 'CANCELLED', note: 'Khách đổi ý' },
+      'admin-1',
+    );
+
+    expect(voucherUpdate).not.toHaveBeenCalled();
   });
 
   describe('notifyCustomerStatusChange (gửi email báo khách hàng qua backend-user)', () => {
