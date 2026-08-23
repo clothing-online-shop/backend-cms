@@ -40,7 +40,9 @@ export class VouchersService {
     const withStatuses = vouchers.map(withStatus);
     // status suy ra từ nhiều field (isActive/startsAt/expiresAt/usageLimit) chứ không phải
     // 1 cột đơn — lọc ở tầng ứng dụng sau khi tính, không dịch được thành 1 mệnh đề where().
-    return query.status
+    // So !== undefined (không phải truthy-check) — VoucherStatus.INACTIVE = 0, falsy trong
+    // JS, `query.status ? ...` sẽ âm thầm bỏ qua lọc INACTIVE.
+    return query.status !== undefined
       ? withStatuses.filter((v) => v.status === query.status)
       : withStatuses;
   }
