@@ -17,6 +17,11 @@ import {
   assertDateRange,
 } from '../../common/utils/date.util';
 import { assertImagePublicIdAligned } from '../../common/utils/image-pairing.util';
+import {
+  buildSkipTake,
+  buildPageMeta,
+  type PageMeta,
+} from '../../common/utils/pagination.util';
 
 export type BannerWithStatus = Banner & { status: BannerStatus };
 
@@ -27,17 +32,33 @@ export class BannersService {
     private readonly uploadService: UploadService,
   ) {}
 
-  async findAll(query: ListBannersQueryDto): Promise<BannerWithStatus[]> {
+  async findAll(
+    query: ListBannersQueryDto,
+  ): Promise<{ data: BannerWithStatus[]; meta: PageMeta }> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
     const where: Prisma.BannerWhereInput = {};
     if (query.search) {
       where.title = { contains: query.search, mode: 'insensitive' };
     }
 
-    const banners = await this.prisma.banner.findMany({
-      where,
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    });
-    return banners.map(withStatus);
+    // Không như Voucher/Collection — banner không có field suy ra (status tính từ
+    // startDate/endDate nhưng không dùng để lọc ở findAll() này), where() ở trên đã đủ thu
+    // hẹp toàn bộ điều kiện lọc nên phân trang thẳng ở DB được, không cần cắt mảng thủ công.
+    const [banners, total] = await this.prisma.$transaction([
+      this.prisma.banner.findMany({
+        where,
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        ...buildSkipTake(page, limit),
+      }),
+      this.prisma.banner.count({ where }),
+    ]);
+
+    return {
+      data: banners.map(withStatus),
+      meta: buildPageMeta(total, page, limit),
+    };
   }
 
   async findOne(id: string): Promise<BannerWithStatus> {

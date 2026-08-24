@@ -31,7 +31,7 @@ export class CollectionsController {
 
   @Get()
   @Roles(...ADMIN_PANEL_ROLES)
-  @ApiOperation({ summary: 'Danh sách bộ sưu tập (tìm theo tên)' })
+  @ApiOperation({ summary: 'Danh sách bộ sưu tập (tìm theo tên, phân trang)' })
   findAll(@Query() query: ListCollectionsQueryDto) {
     return this.collectionsService.findAll(query);
   }

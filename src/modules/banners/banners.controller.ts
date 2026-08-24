@@ -30,7 +30,9 @@ export class BannersController {
 
   @Get()
   @Roles(...ADMIN_PANEL_ROLES)
-  @ApiOperation({ summary: 'Danh sách banner trang chủ (tìm theo tiêu đề)' })
+  @ApiOperation({
+    summary: 'Danh sách banner trang chủ (tìm theo tiêu đề, phân trang)',
+  })
   findAll(@Query() query: ListBannersQueryDto) {
     return this.bannersService.findAll(query);
   }

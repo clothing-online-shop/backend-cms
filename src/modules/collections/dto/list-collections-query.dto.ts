@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class ListCollectionsQueryDto {
   @ApiPropertyOptional({
@@ -25,4 +26,22 @@ export class ListCollectionsQueryDto {
   @IsOptional()
   @IsString()
   includeDeleted?: string;
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({
+    default: 20,
+    description:
+      'Truyền số lớn (vd 1000) ở nơi cần lấy toàn bộ danh sách để làm picker/checkbox, không phải bảng phân trang thật (xem ProductCollectionsStep.tsx)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
 }

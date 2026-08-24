@@ -20,6 +20,10 @@ import { CollectionStatus } from './collection-status.enum';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { ProductStatus } from '../products/product-status.enum';
 import { diffNewlyAdded } from '../../common/utils/diff.util';
+import {
+  buildPageMeta,
+  type PageMeta,
+} from '../../common/utils/pagination.util';
 
 export type CollectionWithStatus = Collection & {
   status: CollectionStatus;
@@ -54,7 +58,10 @@ export class CollectionsService {
 
   async findAll(
     query: ListCollectionsQueryDto,
-  ): Promise<CollectionWithStatus[]> {
+  ): Promise<{ data: CollectionWithStatus[]; meta: PageMeta }> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
     const where: Prisma.CollectionWhereInput = {};
     if (query.search) {
       where.name = { contains: query.search, mode: 'insensitive' };
@@ -71,9 +78,19 @@ export class CollectionsService {
     const withStatuses = collections.map(withStatus);
     // status là field tính động (không nằm trong DB) nên lọc ENDED ở đây, sau khi đã
     // map, thay vì đưa vào Prisma `where` phía trên.
-    return query.excludeEnded === 'true'
-      ? withStatuses.filter((c) => c.status !== CollectionStatus.ENDED)
-      : withStatuses;
+    const filtered =
+      query.excludeEnded === 'true'
+        ? withStatuses.filter((c) => c.status !== CollectionStatus.ENDED)
+        : withStatuses;
+
+    // Phân trang thủ công trên mảng đã lọc — cùng lý do/cùng pattern với
+    // VouchersService.findAll() (status suy ra ở tầng ứng dụng, không lọc được ở DB nên
+    // không dùng buildSkipTake/Prisma skip-take).
+    const start = (page - 1) * limit;
+    return {
+      data: filtered.slice(start, start + limit),
+      meta: buildPageMeta(filtered.length, page, limit),
+    };
   }
 
   async findOne(id: string): Promise<CollectionWithStatus> {
