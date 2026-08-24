@@ -305,3 +305,230 @@ describe('validateFlashSaleItems', () => {
     expect(caught?.getResponse()).toMatchObject({ code: 2202 });
   });
 });
+
+describe('FlashSalesService.update — luật theo trạng thái', () => {
+  function createUpdateMocks() {
+    const findUnique = jest.fn();
+    const update = jest.fn().mockResolvedValue({});
+    const flashSaleItemDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    const transaction = jest.fn((cb: (tx: unknown) => unknown) =>
+      typeof cb === 'function'
+        ? cb({
+            flashSale: { update },
+            flashSaleItem: { deleteMany: flashSaleItemDeleteMany },
+          })
+        : Promise.all(cb as unknown as Promise<unknown>[]),
+    );
+    const prisma = {
+      flashSale: { findUnique, update },
+      flashSaleItem: { deleteMany: flashSaleItemDeleteMany },
+      $transaction: transaction,
+    } as unknown as PrismaService;
+    return { prisma, findUnique, update, flashSaleItemDeleteMany, transaction };
+  }
+
+  it('RUNNING + chỉ sửa endDate -> cho phép', async () => {
+    const { prisma, findUnique, update } = createUpdateMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      name: 'Flash Sale',
+      startDate: new Date(Date.now() - 86400000),
+      endDate: new Date(Date.now() + 86400000),
+      isDelete: false,
+    });
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date(Date.now() - 86400000),
+      endDate: new Date(Date.now() + 86400000),
+      items: [],
+    });
+    const service = new FlashSalesService(prisma);
+
+    await service.update('fs-1', { endDate: new Date().toISOString() });
+
+    expect(update).toHaveBeenCalled();
+  });
+
+  it('RUNNING + cố sửa name -> ConflictException kèm code 2206, không gọi update', async () => {
+    const { prisma, findUnique, update } = createUpdateMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      name: 'Flash Sale',
+      startDate: new Date(Date.now() - 86400000),
+      endDate: new Date(Date.now() + 86400000),
+      isDelete: false,
+    });
+    const service = new FlashSalesService(prisma);
+
+    let caught: { getResponse: () => unknown } | undefined;
+    try {
+      await service.update('fs-1', { name: 'Tên mới' });
+    } catch (err) {
+      caught = err as { getResponse: () => unknown };
+    }
+    expect(caught?.getResponse()).toMatchObject({ code: 2206 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('ENDED + sửa bất kỳ field nào -> ConflictException kèm code 2207', async () => {
+    const { prisma, findUnique, update } = createUpdateMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      name: 'Flash Sale',
+      startDate: new Date('2020-01-01'),
+      endDate: new Date('2020-02-01'),
+      isDelete: false,
+    });
+    const service = new FlashSalesService(prisma);
+
+    let caught: { getResponse: () => unknown } | undefined;
+    try {
+      await service.update('fs-1', { endDate: new Date().toISOString() });
+    } catch (err) {
+      caught = err as { getResponse: () => unknown };
+    }
+    expect(caught?.getResponse()).toMatchObject({ code: 2207 });
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('FlashSalesService.endNow', () => {
+  function createEndNowMocks() {
+    const findUnique = jest.fn();
+    const update = jest.fn().mockResolvedValue({});
+    const prisma = {
+      flashSale: { findUnique, update },
+    } as unknown as PrismaService;
+    return { prisma, findUnique, update };
+  }
+
+  it('đang RUNNING -> set endDate về hiện tại', async () => {
+    const { prisma, findUnique, update } = createEndNowMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date(Date.now() - 86400000),
+      endDate: new Date(Date.now() + 86400000),
+      isDelete: false,
+    });
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date(Date.now() - 86400000),
+      endDate: new Date(Date.now() + 86400000),
+      items: [],
+    });
+    const service = new FlashSalesService(prisma);
+
+    await service.endNow('fs-1');
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'fs-1' },
+        data: { endDate: expect.any(Date) as Date },
+      }),
+    );
+  });
+
+  it('chưa RUNNING (UPCOMING) -> ConflictException kèm code 2211, không gọi update', async () => {
+    const { prisma, findUnique, update } = createEndNowMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date(Date.now() + 86400000),
+      endDate: new Date(Date.now() + 172800000),
+      isDelete: false,
+    });
+    const service = new FlashSalesService(prisma);
+
+    await expect(service.endNow('fs-1')).rejects.toMatchObject({ status: 409 });
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('FlashSalesService.remove', () => {
+  function createRemoveMocks() {
+    const findUnique = jest.fn();
+    const transaction = jest.fn().mockResolvedValue([]);
+    const prisma = {
+      flashSale: { findUnique },
+      $transaction: transaction,
+    } as unknown as PrismaService;
+    return { prisma, findUnique, transaction };
+  }
+
+  it('đang RUNNING -> ConflictException kèm code 2208, không xóa', async () => {
+    const { prisma, findUnique, transaction } = createRemoveMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date(Date.now() - 86400000),
+      endDate: new Date(Date.now() + 86400000),
+      isDelete: false,
+    });
+    const service = new FlashSalesService(prisma);
+
+    await expect(service.remove('fs-1')).rejects.toMatchObject({ status: 409 });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('UPCOMING -> xóa mềm thành công', async () => {
+    const { prisma, findUnique, transaction } = createRemoveMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date(Date.now() + 86400000),
+      endDate: new Date(Date.now() + 172800000),
+      isDelete: false,
+    });
+    const service = new FlashSalesService(prisma);
+
+    await service.remove('fs-1');
+
+    expect(transaction).toHaveBeenCalled();
+  });
+});
+
+describe('FlashSalesService.updateSoldCount', () => {
+  function createSoldCountMocks() {
+    const itemFindUnique = jest.fn();
+    const itemUpdate = jest.fn().mockResolvedValue({});
+    const flashSaleFindUnique = jest.fn();
+    const prisma = {
+      flashSaleItem: { findUnique: itemFindUnique, update: itemUpdate },
+      flashSale: { findUnique: flashSaleFindUnique },
+    } as unknown as PrismaService;
+    return { prisma, itemFindUnique, itemUpdate, flashSaleFindUnique };
+  }
+
+  it('soldCount vượt quantityLimit -> BadRequestException kèm code 2210', async () => {
+    const { prisma, itemFindUnique } = createSoldCountMocks();
+    itemFindUnique.mockResolvedValue({
+      id: 'item-1',
+      flashSaleId: 'fs-1',
+      quantityLimit: 5,
+    });
+    const service = new FlashSalesService(prisma);
+
+    let caught: { getResponse: () => unknown } | undefined;
+    try {
+      await service.updateSoldCount('fs-1', 'item-1', { soldCount: 6 });
+    } catch (err) {
+      caught = err as { getResponse: () => unknown };
+    }
+    expect(caught?.getResponse()).toMatchObject({ code: 2210 });
+  });
+
+  it('item không thuộc đúng flash sale -> NotFoundException kèm code 2209', async () => {
+    const { prisma, itemFindUnique } = createSoldCountMocks();
+    itemFindUnique.mockResolvedValue({
+      id: 'item-1',
+      flashSaleId: 'other-fs',
+      quantityLimit: 5,
+    });
+    const service = new FlashSalesService(prisma);
+
+    let caught: { getResponse: () => unknown } | undefined;
+    try {
+      await service.updateSoldCount('fs-1', 'item-1', { soldCount: 1 });
+    } catch (err) {
+      caught = err as { getResponse: () => unknown };
+    }
+    expect(caught?.getResponse()).toMatchObject({ code: 2209 });
+  });
+});

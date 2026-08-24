@@ -7,7 +7,9 @@ import {
 import { FlashSale, Prisma } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import {
+  assertDateRange,
   deriveDateRangeStatus,
+  isDateInPast,
   type DateRangeStatus,
 } from '../../common/utils/date.util';
 import {
@@ -17,6 +19,9 @@ import {
 import { ErrorCode } from '../../common/constants/error-codes';
 import { ListFlashSalesQueryDto } from './dto/list-flash-sales-query.dto';
 import { FlashSaleItemInputDto } from './dto/flash-sale-item-input.dto';
+import { CreateFlashSaleDto } from './dto/create-flash-sale.dto';
+import { UpdateFlashSaleDto } from './dto/update-flash-sale.dto';
+import { UpdateSoldCountDto } from './dto/update-sold-count.dto';
 
 export type FlashSaleListItem = FlashSale & {
   status: DateRangeStatus;
@@ -112,6 +117,154 @@ export class FlashSalesService {
       });
     }
     return toDetail(flashSale);
+  }
+
+  async create(dto: CreateFlashSaleDto): Promise<FlashSaleDetail> {
+    assertDateRange(dto.startDate, dto.endDate);
+    assertStartDateNotInPast(dto.startDate);
+
+    const startDate = new Date(dto.startDate);
+    const endDate = new Date(dto.endDate);
+    const items = await validateFlashSaleItems(
+      this.prisma,
+      dto.items,
+      startDate,
+      endDate,
+      null,
+    );
+
+    const created = await this.prisma.flashSale.create({
+      data: {
+        name: dto.name,
+        startDate,
+        endDate,
+        items: { create: items },
+      },
+    });
+    return this.findOne(created.id);
+  }
+
+  async update(id: string, dto: UpdateFlashSaleDto): Promise<FlashSaleDetail> {
+    const existing = await this.findExisting(id);
+    const status = deriveDateRangeStatus(existing.startDate, existing.endDate);
+
+    if (status === 'ENDED') {
+      throw new ConflictException({
+        message: 'Đợt Flash Sale đã kết thúc — không thể chỉnh sửa.',
+        code: ErrorCode.FLASH_SALE_UPDATE_BLOCKED_ENDED,
+      });
+    }
+    if (status === 'RUNNING') {
+      const attemptingBlockedField =
+        dto.name !== undefined ||
+        dto.startDate !== undefined ||
+        dto.items !== undefined;
+      if (attemptingBlockedField) {
+        throw new ConflictException({
+          message:
+            'Đợt Flash Sale đang diễn ra — chỉ có thể sửa ngày kết thúc.',
+          code: ErrorCode.FLASH_SALE_UPDATE_FIELD_BLOCKED_RUNNING,
+        });
+      }
+    }
+
+    const startDate = dto.startDate ?? existing.startDate.toISOString();
+    const endDate = dto.endDate ?? existing.endDate.toISOString();
+    assertDateRange(startDate, endDate);
+    if (status === 'UPCOMING' && dto.startDate) {
+      assertStartDateNotInPast(dto.startDate);
+    }
+
+    if (dto.items) {
+      const items = await validateFlashSaleItems(
+        this.prisma,
+        dto.items,
+        new Date(startDate),
+        new Date(endDate),
+        id,
+      );
+      await this.prisma.$transaction([
+        this.prisma.flashSaleItem.deleteMany({ where: { flashSaleId: id } }),
+        this.prisma.flashSale.update({
+          where: { id },
+          data: {
+            name: dto.name,
+            startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+            endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+            items: { create: items },
+          },
+        }),
+      ]);
+    } else {
+      await this.prisma.flashSale.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+          endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        },
+      });
+    }
+
+    return this.findOne(id);
+  }
+
+  async endNow(id: string): Promise<FlashSaleDetail> {
+    const existing = await this.findExisting(id);
+    const status = deriveDateRangeStatus(existing.startDate, existing.endDate);
+    if (status !== 'RUNNING') {
+      throw new ConflictException({
+        message: 'Chỉ có thể kết thúc sớm đợt đang diễn ra.',
+        code: ErrorCode.FLASH_SALE_END_NOW_NOT_RUNNING,
+      });
+    }
+    await this.prisma.flashSale.update({
+      where: { id },
+      data: { endDate: new Date() },
+    });
+    return this.findOne(id);
+  }
+
+  async remove(id: string): Promise<void> {
+    const existing = await this.findExisting(id);
+    const status = deriveDateRangeStatus(existing.startDate, existing.endDate);
+    if (status === 'RUNNING') {
+      throw new ConflictException({
+        message: 'Không thể xóa đợt Flash Sale đang diễn ra.',
+        code: ErrorCode.FLASH_SALE_DELETE_BLOCKED_RUNNING,
+      });
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.flashSaleItem.deleteMany({ where: { flashSaleId: id } });
+      await tx.flashSale.update({ where: { id }, data: { isDelete: true } });
+    });
+  }
+
+  async updateSoldCount(
+    id: string,
+    itemId: string,
+    dto: UpdateSoldCountDto,
+  ): Promise<FlashSaleDetail> {
+    const item = await this.prisma.flashSaleItem.findUnique({
+      where: { id: itemId },
+    });
+    if (!item || item.flashSaleId !== id) {
+      throw new NotFoundException({
+        message: 'Không tìm thấy sản phẩm trong đợt Flash Sale.',
+        code: ErrorCode.FLASH_SALE_ITEM_NOT_FOUND,
+      });
+    }
+    if (dto.soldCount > item.quantityLimit) {
+      throw new BadRequestException({
+        message: `Số đã bán không được vượt quá giới hạn (${item.quantityLimit}).`,
+        code: ErrorCode.FLASH_SALE_SOLD_COUNT_EXCEEDS_LIMIT,
+      });
+    }
+    await this.prisma.flashSaleItem.update({
+      where: { id: itemId },
+      data: { soldCount: dto.soldCount },
+    });
+    return this.findOne(id);
   }
 
   // Dùng lại ở Task 7-8 (update/endNow/remove/updateSoldCount) — trả về bản ghi FlashSale
@@ -240,4 +393,13 @@ export async function validateFlashSaleItems(
     salePrice: new Prisma.Decimal(item.salePrice),
     quantityLimit: item.quantityLimit,
   }));
+}
+
+function assertStartDateNotInPast(startDate: string): void {
+  if (isDateInPast(startDate)) {
+    throw new BadRequestException({
+      message: 'Ngày bắt đầu không được ở trong quá khứ.',
+      code: ErrorCode.FLASH_SALE_START_DATE_IN_PAST,
+    });
+  }
 }
