@@ -1,4 +1,8 @@
-import { toInclusiveEndOfDay, toInclusiveStartOfDay } from './date.util';
+import {
+  toInclusiveEndOfDay,
+  toInclusiveStartOfDay,
+  isDateInPast,
+} from './date.util';
 
 // So bằng toISOString() (luôn quy về UTC, không phụ thuộc múi giờ máy chạy test) — 2 hàm
 // dưới đây neo tường minh theo giờ VN (UTC+7) ngay trong implementation (xem withVnOffset()
@@ -38,5 +42,23 @@ describe('toInclusiveStartOfDay', () => {
     const end = toInclusiveEndOfDay('2026-08-21');
     const diffMs = end.getTime() - start.getTime();
     expect(diffMs).toBe(24 * 60 * 60 * 1000 - 1);
+  });
+});
+
+describe('isDateInPast', () => {
+  it('ngày trong quá khứ (hôm qua) → true', () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    expect(isDateInPast(yesterday.toISOString())).toBe(true);
+  });
+
+  it('hôm nay → false (so theo ngày lịch, không phải giờ chính xác)', () => {
+    expect(isDateInPast(new Date().toISOString())).toBe(false);
+  });
+
+  it('ngày trong tương lai → false', () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    expect(isDateInPast(tomorrow.toISOString())).toBe(false);
   });
 });

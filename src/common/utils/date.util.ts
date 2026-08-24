@@ -79,3 +79,12 @@ export function toInclusiveStartOfDay(value: string): Date {
     ),
   );
 }
+
+// Dùng chung cho mọi nơi cần chặn chọn ngày bắt đầu trong quá khứ (Collection, Flash Sale...)
+// — so theo NGÀY LỊCH (bỏ qua giờ, cùng cách toDateOnly() đang dùng cho deriveDateRangeStatus)
+// để admin chọn "hôm nay" vẫn hợp lệ dù giờ hiện tại đã qua nửa đêm giờ server. Trả boolean
+// thuần, KHÔNG ném lỗi — mỗi domain tự quyết định ném lỗi gì/mã nào (xem
+// assertStartDateNotInPast() ở collections.service.ts và flash-sales.service.ts).
+export function isDateInPast(date: string): boolean {
+  return toDateOnly(new Date(date)) < toDateOnly(new Date());
+}

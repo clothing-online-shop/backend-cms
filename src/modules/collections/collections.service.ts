@@ -10,7 +10,7 @@ import { generateSlug } from '../../common/utils/slug.util';
 import {
   deriveDateRangeStatus,
   assertDateRange,
-  toDateOnly,
+  isDateInPast,
 } from '../../common/utils/date.util';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { UpdateCollectionDto } from './dto/update-collection.dto';
@@ -387,7 +387,7 @@ export class CollectionsService {
 }
 
 function assertStartDateNotInPast(startDate: string): void {
-  if (toDateOnly(new Date(startDate)) < toDateOnly(new Date())) {
+  if (isDateInPast(startDate)) {
     throw new ConflictException({
       message: 'Ngày bắt đầu không được ở trong quá khứ.',
       code: ErrorCode.COLLECTION_START_DATE_IN_PAST,
