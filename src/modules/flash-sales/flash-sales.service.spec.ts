@@ -1,5 +1,10 @@
-import { FlashSalesService } from './flash-sales.service';
+import {
+  FlashSalesService,
+  validateFlashSaleItems,
+} from './flash-sales.service';
 import { PrismaService } from '../../config/prisma.service';
+import { Prisma } from '@prisma/client';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 
 function createMocks() {
   const findMany = jest.fn();
@@ -123,5 +128,180 @@ describe('FlashSalesService.findOne', () => {
     await expect(service.findOne('fs-deleted')).rejects.toMatchObject({
       status: 404,
     });
+  });
+});
+
+function variant(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: overrides.id ?? 'variant-1',
+    price: new Prisma.Decimal((overrides.price as number) ?? 200000),
+    stockQuantity: (overrides.stockQuantity as number) ?? 10,
+    sku: (overrides.sku as string) ?? 'SKU-1',
+  };
+}
+
+describe('validateFlashSaleItems', () => {
+  function createValidationMocks() {
+    const variantFindMany = jest.fn();
+    const itemFindMany = jest.fn();
+    const prisma = {
+      productVariant: { findMany: variantFindMany },
+      flashSaleItem: { findMany: itemFindMany },
+    };
+    return { prisma, variantFindMany, itemFindMany };
+  }
+
+  const NEW_START = new Date('2026-09-01T00:00:00.000Z');
+  const NEW_END = new Date('2026-09-02T00:00:00.000Z');
+
+  it('hợp lệ -> trả về đúng danh sách item đã chuẩn hóa (salePrice là Decimal)', async () => {
+    const { prisma, variantFindMany, itemFindMany } = createValidationMocks();
+    variantFindMany.mockResolvedValue([
+      variant({ id: 'variant-1', price: 200000, stockQuantity: 10 }),
+    ]);
+    itemFindMany.mockResolvedValue([]);
+
+    const result = await validateFlashSaleItems(
+      prisma as never,
+      [{ productVariantId: 'variant-1', salePrice: 150000, quantityLimit: 5 }],
+      NEW_START,
+      NEW_END,
+      null,
+    );
+
+    expect(result).toEqual([
+      {
+        productVariantId: 'variant-1',
+        salePrice: new Prisma.Decimal(150000),
+        quantityLimit: 5,
+      },
+    ]);
+  });
+
+  it('salePrice >= giá gốc -> BadRequestException kèm code 2203', async () => {
+    const { prisma, variantFindMany, itemFindMany } = createValidationMocks();
+    variantFindMany.mockResolvedValue([
+      variant({ id: 'variant-1', price: 100000 }),
+    ]);
+    itemFindMany.mockResolvedValue([]);
+
+    let caught: BadRequestException | undefined;
+    try {
+      await validateFlashSaleItems(
+        prisma as never,
+        [
+          {
+            productVariantId: 'variant-1',
+            salePrice: 100000,
+            quantityLimit: 1,
+          },
+        ],
+        NEW_START,
+        NEW_END,
+        null,
+      );
+    } catch (err) {
+      caught = err as BadRequestException;
+    }
+    expect(caught).toBeInstanceOf(BadRequestException);
+    expect(caught?.getResponse()).toMatchObject({ code: 2203 });
+  });
+
+  it('quantityLimit > tồn kho -> BadRequestException kèm code 2204', async () => {
+    const { prisma, variantFindMany, itemFindMany } = createValidationMocks();
+    variantFindMany.mockResolvedValue([
+      variant({ id: 'variant-1', stockQuantity: 3 }),
+    ]);
+    itemFindMany.mockResolvedValue([]);
+
+    let caught: BadRequestException | undefined;
+    try {
+      await validateFlashSaleItems(
+        prisma as never,
+        [{ productVariantId: 'variant-1', salePrice: 1000, quantityLimit: 4 }],
+        NEW_START,
+        NEW_END,
+        null,
+      );
+    } catch (err) {
+      caught = err as BadRequestException;
+    }
+    expect(caught?.getResponse()).toMatchObject({ code: 2204 });
+  });
+
+  it('biến thể trùng với đợt sale khác còn hiệu lực, khung giờ giao nhau -> ConflictException kèm code 2205', async () => {
+    const { prisma, variantFindMany, itemFindMany } = createValidationMocks();
+    variantFindMany.mockResolvedValue([variant({ id: 'variant-1' })]);
+    itemFindMany.mockResolvedValue([
+      {
+        productVariantId: 'variant-1',
+        flashSaleId: 'other-flash-sale',
+        flashSale: { name: 'Đợt sale khác' },
+        productVariant: { sku: 'SKU-1' },
+      },
+    ]);
+
+    let caught: ConflictException | undefined;
+    try {
+      await validateFlashSaleItems(
+        prisma as never,
+        [{ productVariantId: 'variant-1', salePrice: 1000, quantityLimit: 1 }],
+        NEW_START,
+        NEW_END,
+        null,
+      );
+    } catch (err) {
+      caught = err as ConflictException;
+    }
+    expect(caught).toBeInstanceOf(ConflictException);
+    expect(caught?.getResponse()).toMatchObject({ code: 2205 });
+  });
+
+  it('đang sửa 1 flash sale (excludeFlashSaleId) -> tự loại trừ chính nó khỏi check trùng', async () => {
+    const { prisma, variantFindMany, itemFindMany } = createValidationMocks();
+    variantFindMany.mockResolvedValue([variant({ id: 'variant-1' })]);
+    itemFindMany.mockResolvedValue([]);
+
+    await validateFlashSaleItems(
+      prisma as never,
+      [{ productVariantId: 'variant-1', salePrice: 1000, quantityLimit: 1 }],
+      NEW_START,
+      NEW_END,
+      'this-flash-sale-id',
+    );
+
+    expect(itemFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          flashSaleId: { not: 'this-flash-sale-id' },
+        }) as unknown,
+      }),
+    );
+  });
+
+  it('biến thể không tồn tại -> BadRequestException kèm code 2202', async () => {
+    const { prisma, variantFindMany, itemFindMany } = createValidationMocks();
+    variantFindMany.mockResolvedValue([]);
+    itemFindMany.mockResolvedValue([]);
+
+    let caught: BadRequestException | undefined;
+    try {
+      await validateFlashSaleItems(
+        prisma as never,
+        [
+          {
+            productVariantId: 'variant-missing',
+            salePrice: 1000,
+            quantityLimit: 1,
+          },
+        ],
+        NEW_START,
+        NEW_END,
+        null,
+      );
+    } catch (err) {
+      caught = err as BadRequestException;
+    }
+    expect(caught?.getResponse()).toMatchObject({ code: 2202 });
   });
 });

@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { FlashSale, Prisma } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import {
@@ -11,6 +16,7 @@ import {
 } from '../../common/utils/pagination.util';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { ListFlashSalesQueryDto } from './dto/list-flash-sales-query.dto';
+import { FlashSaleItemInputDto } from './dto/flash-sale-item-input.dto';
 
 export type FlashSaleListItem = FlashSale & {
   status: DateRangeStatus;
@@ -152,4 +158,86 @@ function toDetail(flashSale: FlashSaleWithDetailInclude): FlashSaleDetail {
       },
     })),
   };
+}
+
+export async function validateFlashSaleItems(
+  prisma: Pick<Prisma.TransactionClient, 'productVariant' | 'flashSaleItem'>,
+  items: FlashSaleItemInputDto[],
+  startDate: Date,
+  endDate: Date,
+  excludeFlashSaleId: string | null,
+): Promise<
+  {
+    productVariantId: string;
+    salePrice: Prisma.Decimal;
+    quantityLimit: number;
+  }[]
+> {
+  const variantIds = items.map((item) => item.productVariantId);
+  const variants = await prisma.productVariant.findMany({
+    where: { id: { in: variantIds } },
+  });
+  const variantById = new Map(variants.map((v) => [v.id, v]));
+
+  for (const item of items) {
+    const variant = variantById.get(item.productVariantId);
+    if (!variant) {
+      throw new BadRequestException({
+        message: 'Không tìm thấy biến thể sản phẩm.',
+        code: ErrorCode.FLASH_SALE_VARIANT_NOT_FOUND,
+      });
+    }
+    if (item.salePrice >= variant.price.toNumber()) {
+      throw new BadRequestException({
+        message: `Giá sale phải nhỏ hơn giá gốc (${variant.price.toString()}).`,
+        code: ErrorCode.FLASH_SALE_INVALID_SALE_PRICE,
+      });
+    }
+    if (item.quantityLimit > variant.stockQuantity) {
+      throw new BadRequestException({
+        message: `Số lượng giới hạn không được vượt quá tồn kho hiện tại (${variant.stockQuantity}).`,
+        code: ErrorCode.FLASH_SALE_QUANTITY_EXCEEDS_STOCK,
+      });
+    }
+  }
+
+  // Chặn trùng biến thể: tìm FlashSaleItem khác (loại trừ chính campaign đang sửa) cho cùng
+  // biến thể, mà FlashSale cha CHƯA ENDED (endDate >= now) VÀ khung giờ giao nhau với
+  // [startDate, endDate] mới. 3 điều kiện đều nằm trên field `endDate`/`startDate` của
+  // flashSale nên PHẢI gộp bằng AND — không viết trùng key `endDate` 2 lần trong cùng object
+  // (object literal sẽ ghi đè lẫn nhau, chỉ giữ lại điều kiện viết sau).
+  const now = new Date();
+  const overlapping = await prisma.flashSaleItem.findMany({
+    where: {
+      productVariantId: { in: variantIds },
+      ...(excludeFlashSaleId
+        ? { flashSaleId: { not: excludeFlashSaleId } }
+        : {}),
+      flashSale: {
+        isDelete: false,
+        AND: [
+          { endDate: { gte: now } },
+          { startDate: { lte: endDate } },
+          { endDate: { gte: startDate } },
+        ],
+      },
+    },
+    include: {
+      flashSale: { select: { name: true } },
+      productVariant: { select: { sku: true } },
+    },
+  });
+  if (overlapping.length > 0) {
+    const first = overlapping[0];
+    throw new ConflictException({
+      message: `Biến thể (SKU: ${first.productVariant.sku}) đã tham gia đợt Flash Sale "${first.flashSale.name}" trong cùng khoảng thời gian.`,
+      code: ErrorCode.FLASH_SALE_VARIANT_OVERLAP,
+    });
+  }
+
+  return items.map((item) => ({
+    productVariantId: item.productVariantId,
+    salePrice: new Prisma.Decimal(item.salePrice),
+    quantityLimit: item.quantityLimit,
+  }));
 }
