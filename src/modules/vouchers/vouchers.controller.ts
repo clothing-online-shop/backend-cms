@@ -30,7 +30,7 @@ export class VouchersController {
   @Get()
   @Roles(...ADMIN_PANEL_ROLES)
   @ApiOperation({
-    summary: 'Danh sách voucher (tìm theo mã, lọc theo trạng thái)',
+    summary: 'Danh sách voucher (tìm theo mã, lọc theo trạng thái, phân trang)',
   })
   findAll(@Query() query: ListVouchersQueryDto) {
     return this.vouchersService.findAll(query);
