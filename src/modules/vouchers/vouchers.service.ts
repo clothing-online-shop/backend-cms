@@ -13,6 +13,10 @@ import { ErrorCode } from '../../common/constants/error-codes';
 import { VoucherStatus } from './voucher-status.enum';
 import { assertDateRange } from '../../common/utils/date.util';
 import { assertImagePublicIdAligned } from '../../common/utils/image-pairing.util';
+import {
+  buildPageMeta,
+  type PageMeta,
+} from '../../common/utils/pagination.util';
 
 export type VoucherWithStatus = Voucher & { status: VoucherStatus };
 
@@ -23,7 +27,12 @@ export class VouchersService {
     private readonly uploadService: UploadService,
   ) {}
 
-  async findAll(query: ListVouchersQueryDto): Promise<VoucherWithStatus[]> {
+  async findAll(
+    query: ListVouchersQueryDto,
+  ): Promise<{ data: VoucherWithStatus[]; meta: PageMeta }> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
     const where: Prisma.VoucherWhereInput = {};
     if (query.search) {
       where.code = { contains: query.search, mode: 'insensitive' };
@@ -42,9 +51,19 @@ export class VouchersService {
     // 1 cột đơn — lọc ở tầng ứng dụng sau khi tính, không dịch được thành 1 mệnh đề where().
     // So !== undefined (không phải truthy-check) — VoucherStatus.INACTIVE = 0, falsy trong
     // JS, `query.status ? ...` sẽ âm thầm bỏ qua lọc INACTIVE.
-    return query.status !== undefined
-      ? withStatuses.filter((v) => v.status === query.status)
-      : withStatuses;
+    const filtered =
+      query.status !== undefined
+        ? withStatuses.filter((v) => v.status === query.status)
+        : withStatuses;
+
+    // Phân trang thủ công trên mảng đã lọc (không dùng buildSkipTake/Prisma skip-take như
+    // các list khác) — status không lọc được ở DB nên toàn bộ where() ở trên chỉ thu hẹp
+    // được search/discountType, phải lọc status xong mới biết đúng total/slice đúng trang.
+    const start = (page - 1) * limit;
+    return {
+      data: filtered.slice(start, start + limit),
+      meta: buildPageMeta(filtered.length, page, limit),
+    };
   }
 
   async findOne(id: string): Promise<VoucherWithStatus> {
