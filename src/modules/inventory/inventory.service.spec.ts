@@ -203,6 +203,7 @@ describe('InventoryService — findAll', () => {
       sku: 'SKU-1',
       size: 'M',
       color: 'Đen',
+      price: new Prisma.Decimal('250000'),
       stockQuantity: 3,
       product: {
         id: 'p1',
@@ -222,6 +223,7 @@ describe('InventoryService — findAll', () => {
         sku: 'SKU-1',
         size: 'M',
         color: 'Đen',
+        price: 250000,
         stockQuantity: 3,
         lowStockThreshold: 5,
         productId: 'p1',
