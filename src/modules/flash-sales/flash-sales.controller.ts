@@ -20,6 +20,7 @@ import { CreateFlashSaleDto } from './dto/create-flash-sale.dto';
 import { UpdateFlashSaleDto } from './dto/update-flash-sale.dto';
 import { ListFlashSalesQueryDto } from './dto/list-flash-sales-query.dto';
 import { UpdateSoldCountDto } from './dto/update-sold-count.dto';
+import { AddFlashSaleItemsDto } from './dto/add-flash-sale-items.dto';
 
 @ApiTags('flash-sales')
 @ApiBearerAuth()
@@ -65,6 +66,16 @@ export class FlashSalesController {
   })
   endNow(@Param('id') id: string) {
     return this.flashSalesService.endNow(id);
+  }
+
+  @Post(':id/items')
+  @Roles(UserRole.ADMIN, UserRole.MARKETING)
+  @ApiOperation({
+    summary:
+      'Thêm sản phẩm vào đợt Flash Sale đang diễn ra — chỉ cộng thêm, không xóa/sửa sản phẩm đã có (Admin, Marketing)',
+  })
+  addItems(@Param('id') id: string, @Body() dto: AddFlashSaleItemsDto) {
+    return this.flashSalesService.addItems(id, dto);
   }
 
   @Patch(':id/items/:itemId/sold-count')
