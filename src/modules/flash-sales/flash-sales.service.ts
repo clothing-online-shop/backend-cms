@@ -8,8 +8,8 @@ import { FlashSale, Prisma } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import {
   assertDateRange,
-  deriveDateRangeStatus,
-  isDateInPast,
+  deriveInstantRangeStatus,
+  isInstantInPast,
   type DateRangeStatus,
 } from '../../common/utils/date.util';
 import {
@@ -84,14 +84,18 @@ export class FlashSalesService {
     const flashSales = await this.prisma.flashSale.findMany({
       where,
       orderBy: { startDate: 'desc' },
-      include: { items: true },
+      include: { _count: { select: { items: true } } },
     });
 
-    const withStatuses: FlashSaleListItem[] = flashSales.map((fs) => ({
-      ...fs,
-      status: deriveDateRangeStatus(fs.startDate, fs.endDate),
-      itemCount: fs.items.length,
-    }));
+    // Destructure `_count` ra khỏi phần spread: response chỉ khai báo `itemCount`, không nên
+    // rò rỉ nguyên mảng items[] (hoặc field `_count` nội bộ của Prisma) ra API list.
+    const withStatuses: FlashSaleListItem[] = flashSales.map(
+      ({ _count, ...fs }) => ({
+        ...fs,
+        status: deriveInstantRangeStatus(fs.startDate, fs.endDate),
+        itemCount: _count.items,
+      }),
+    );
     // status là field suy ra (không nằm trong DB) nên lọc ở đây, sau khi map, thay vì đưa
     // vào Prisma where() phía trên — cùng lý do/pattern VouchersService.findAll().
     const filtered = query.status
@@ -146,7 +150,10 @@ export class FlashSalesService {
 
   async update(id: string, dto: UpdateFlashSaleDto): Promise<FlashSaleDetail> {
     const existing = await this.findExisting(id);
-    const status = deriveDateRangeStatus(existing.startDate, existing.endDate);
+    const status = deriveInstantRangeStatus(
+      existing.startDate,
+      existing.endDate,
+    );
 
     if (status === 'ENDED') {
       throw new ConflictException({
@@ -196,6 +203,22 @@ export class FlashSalesService {
         }),
       ]);
     } else {
+      // Không đổi items nhưng NGÀY có thể đổi (RUNNING chỉ cho sửa endDate, UPCOMING cho sửa
+      // cả startDate/endDate) — phải re-check overlap của các item HIỆN CÓ với khung giờ MỚI,
+      // nếu không: kéo dài endDate của 1 campaign đang RUNNING (hoặc dời khung giờ UPCOMING)
+      // có thể khiến biến thể của nó chồng lấn với 1 campaign khác mà không ai validate lại.
+      const existingItems = await this.prisma.flashSaleItem.findMany({
+        where: { flashSaleId: id },
+      });
+      if (existingItems.length > 0) {
+        await assertNoVariantOverlap(
+          this.prisma,
+          existingItems.map((item) => item.productVariantId),
+          new Date(startDate),
+          new Date(endDate),
+          id,
+        );
+      }
       await this.prisma.flashSale.update({
         where: { id },
         data: {
@@ -211,7 +234,10 @@ export class FlashSalesService {
 
   async endNow(id: string): Promise<FlashSaleDetail> {
     const existing = await this.findExisting(id);
-    const status = deriveDateRangeStatus(existing.startDate, existing.endDate);
+    const status = deriveInstantRangeStatus(
+      existing.startDate,
+      existing.endDate,
+    );
     if (status !== 'RUNNING') {
       throw new ConflictException({
         message: 'Chỉ có thể kết thúc sớm đợt đang diễn ra.',
@@ -227,7 +253,10 @@ export class FlashSalesService {
 
   async remove(id: string): Promise<void> {
     const existing = await this.findExisting(id);
-    const status = deriveDateRangeStatus(existing.startDate, existing.endDate);
+    const status = deriveInstantRangeStatus(
+      existing.startDate,
+      existing.endDate,
+    );
     if (status === 'RUNNING') {
       throw new ConflictException({
         message: 'Không thể xóa đợt Flash Sale đang diễn ra.',
@@ -288,7 +317,7 @@ type FlashSaleWithDetailInclude = Prisma.FlashSaleGetPayload<{
 function toDetail(flashSale: FlashSaleWithDetailInclude): FlashSaleDetail {
   return {
     ...flashSale,
-    status: deriveDateRangeStatus(flashSale.startDate, flashSale.endDate),
+    status: deriveInstantRangeStatus(flashSale.startDate, flashSale.endDate),
     items: flashSale.items.map((item) => ({
       id: item.id,
       productVariantId: item.productVariantId,
@@ -327,6 +356,19 @@ export async function validateFlashSaleItems(
   }[]
 > {
   const variantIds = items.map((item) => item.productVariantId);
+
+  // Cùng 1 biến thể xuất hiện 2 lần trong 1 payload sẽ vi phạm unique
+  // (flashSaleId, productVariantId) ở tầng DB và bung ra lỗi 500 — chặn sớm ở đây với 400 rõ
+  // nghĩa. Check trùng NỘI BỘ payload này khác với assertNoVariantOverlap() (trùng với
+  // campaign KHÁC), nên phải làm riêng.
+  const uniqueVariantIds = new Set(variantIds);
+  if (uniqueVariantIds.size !== variantIds.length) {
+    throw new BadRequestException({
+      message: 'Danh sách sản phẩm có biến thể bị trùng lặp.',
+      code: ErrorCode.FLASH_SALE_DUPLICATE_VARIANT,
+    });
+  }
+
   const variants = await prisma.productVariant.findMany({
     where: { id: { in: variantIds } },
   });
@@ -354,6 +396,33 @@ export async function validateFlashSaleItems(
     }
   }
 
+  await assertNoVariantOverlap(
+    prisma,
+    variantIds,
+    startDate,
+    endDate,
+    excludeFlashSaleId,
+  );
+
+  return items.map((item) => ({
+    productVariantId: item.productVariantId,
+    salePrice: new Prisma.Decimal(item.salePrice),
+    quantityLimit: item.quantityLimit,
+  }));
+}
+
+// Tách riêng từ validateFlashSaleItems() để dùng lại khi update() chỉ đổi khung giờ
+// (startDate/endDate) mà KHÔNG đổi items — trường hợp đó vẫn phải re-check trùng biến thể
+// với khung giờ MỚI (kéo dài/dời campaign có thể tạo overlap mới với campaign khác), nhưng
+// KHÔNG được re-check giá/tồn kho (item cũ vốn đã hợp lệ, không có lý do bất ngờ từ chối 1
+// thao tác "chỉ sửa ngày" vì giá gốc/tồn kho biến thể đổi ở nơi khác từ lúc đó).
+async function assertNoVariantOverlap(
+  prisma: Pick<Prisma.TransactionClient, 'flashSaleItem'>,
+  variantIds: string[],
+  startDate: Date,
+  endDate: Date,
+  excludeFlashSaleId: string | null,
+): Promise<void> {
   // Chặn trùng biến thể: tìm FlashSaleItem khác (loại trừ chính campaign đang sửa) cho cùng
   // biến thể, mà FlashSale cha CHƯA ENDED (endDate >= now) VÀ khung giờ giao nhau với
   // [startDate, endDate] mới. 3 điều kiện đều nằm trên field `endDate`/`startDate` của
@@ -387,16 +456,10 @@ export async function validateFlashSaleItems(
       code: ErrorCode.FLASH_SALE_VARIANT_OVERLAP,
     });
   }
-
-  return items.map((item) => ({
-    productVariantId: item.productVariantId,
-    salePrice: new Prisma.Decimal(item.salePrice),
-    quantityLimit: item.quantityLimit,
-  }));
 }
 
 function assertStartDateNotInPast(startDate: string): void {
-  if (isDateInPast(startDate)) {
+  if (isInstantInPast(startDate)) {
     throw new BadRequestException({
       message: 'Ngày bắt đầu không được ở trong quá khứ.',
       code: ErrorCode.FLASH_SALE_START_DATE_IN_PAST,

@@ -14,7 +14,9 @@ function createMocks() {
   return { prisma, findMany };
 }
 
-// startDate xa quá khứ + endDate xa tương lai -> luôn RUNNING (deriveDateRangeStatus).
+// startDate xa quá khứ + endDate xa tương lai -> luôn RUNNING (deriveInstantRangeStatus).
+// `_count: { items: N }` là đúng shape mà findMany({ include: { _count: { select: { items } } } })
+// trả về — findAll() dùng nó để tính itemCount thay vì materialize cả mảng items[].
 function runningFlashSale(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: `fs-${Math.random()}`,
@@ -24,7 +26,7 @@ function runningFlashSale(overrides: Partial<Record<string, unknown>> = {}) {
     isDelete: false,
     createdAt: new Date('2020-01-01'),
     updatedAt: new Date('2020-01-01'),
-    items: [],
+    _count: { items: 0 },
     ...overrides,
   };
 }
@@ -92,6 +94,25 @@ describe('FlashSalesService.findAll', () => {
       'ended-2',
     ]);
     expect(result.meta.total).toBe(2);
+  });
+
+  it('itemCount lấy từ _count.items và KHÔNG rò rỉ items[]/_count ra response', async () => {
+    const { prisma, findMany } = createMocks();
+    findMany.mockResolvedValue([
+      runningFlashSale({ id: 'fs1', _count: { items: 3 } }),
+    ]);
+    const service = new FlashSalesService(prisma);
+
+    const result = await service.findAll({});
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: { _count: { select: { items: true } } },
+      }),
+    );
+    expect(result.data[0].itemCount).toBe(3);
+    expect(result.data[0]).not.toHaveProperty('items');
+    expect(result.data[0]).not.toHaveProperty('_count');
   });
 });
 
@@ -279,6 +300,32 @@ describe('validateFlashSaleItems', () => {
     );
   });
 
+  it('2 item cùng productVariantId trong 1 payload -> BadRequestException kèm code 2213', async () => {
+    const { prisma, variantFindMany, itemFindMany } = createValidationMocks();
+    variantFindMany.mockResolvedValue([variant({ id: 'variant-1' })]);
+    itemFindMany.mockResolvedValue([]);
+
+    let caught: BadRequestException | undefined;
+    try {
+      await validateFlashSaleItems(
+        prisma as never,
+        [
+          { productVariantId: 'variant-1', salePrice: 1000, quantityLimit: 1 },
+          { productVariantId: 'variant-1', salePrice: 2000, quantityLimit: 2 },
+        ],
+        NEW_START,
+        NEW_END,
+        null,
+      );
+    } catch (err) {
+      caught = err as BadRequestException;
+    }
+    expect(caught).toBeInstanceOf(BadRequestException);
+    expect(caught?.getResponse()).toMatchObject({ code: 2213 });
+    // Chặn ngay trước khi chạm DB — không tốn query nào cho payload chắc chắn sai.
+    expect(variantFindMany).not.toHaveBeenCalled();
+  });
+
   it('biến thể không tồn tại -> BadRequestException kèm code 2202', async () => {
     const { prisma, variantFindMany, itemFindMany } = createValidationMocks();
     variantFindMany.mockResolvedValue([]);
@@ -306,11 +353,138 @@ describe('validateFlashSaleItems', () => {
   });
 });
 
+describe('FlashSalesService.create', () => {
+  function createCreateMocks() {
+    const variantFindMany = jest
+      .fn()
+      .mockResolvedValue([
+        variant({ id: 'variant-1', price: 200000, stockQuantity: 10 }),
+      ]);
+    const itemFindMany = jest.fn().mockResolvedValue([]);
+    const flashSaleCreate = jest.fn().mockResolvedValue({ id: 'fs-new' });
+    const flashSaleFindUnique = jest.fn().mockResolvedValue({
+      id: 'fs-new',
+      name: 'Sale 12.12',
+      startDate: new Date(Date.now() + 86400000),
+      endDate: new Date(Date.now() + 172800000),
+      isDelete: false,
+      items: [],
+    });
+    const prisma = {
+      productVariant: { findMany: variantFindMany },
+      flashSaleItem: { findMany: itemFindMany },
+      flashSale: { create: flashSaleCreate, findUnique: flashSaleFindUnique },
+    } as unknown as PrismaService;
+    return { prisma, flashSaleCreate, flashSaleFindUnique };
+  }
+
+  const FUTURE_START = new Date(Date.now() + 86400000).toISOString();
+  const FUTURE_END = new Date(Date.now() + 172800000).toISOString();
+
+  it('input hợp lệ -> tạo flash sale kèm items và trả về detail (status UPCOMING)', async () => {
+    const { prisma, flashSaleCreate, flashSaleFindUnique } =
+      createCreateMocks();
+    const service = new FlashSalesService(prisma);
+
+    const result = await service.create({
+      name: 'Sale 12.12',
+      startDate: FUTURE_START,
+      endDate: FUTURE_END,
+      items: [
+        { productVariantId: 'variant-1', salePrice: 150000, quantityLimit: 5 },
+      ],
+    });
+
+    expect(flashSaleCreate).toHaveBeenCalledWith({
+      data: {
+        name: 'Sale 12.12',
+        startDate: new Date(FUTURE_START),
+        endDate: new Date(FUTURE_END),
+        items: {
+          create: [
+            {
+              productVariantId: 'variant-1',
+              salePrice: new Prisma.Decimal(150000),
+              quantityLimit: 5,
+            },
+          ],
+        },
+      },
+    });
+    // create() trả về detail bằng cách gọi lại findOne(created.id).
+    expect(flashSaleFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'fs-new' } }),
+    );
+    expect(result).toMatchObject({ id: 'fs-new', status: 'UPCOMING' });
+  });
+
+  it('startDate trong quá khứ -> BadRequestException kèm code 2212, không gọi create', async () => {
+    const { prisma, flashSaleCreate } = createCreateMocks();
+    const service = new FlashSalesService(prisma);
+
+    let caught: { getResponse: () => unknown } | undefined;
+    try {
+      await service.create({
+        name: 'Sale quá khứ',
+        startDate: new Date(Date.now() - 86400000).toISOString(),
+        endDate: FUTURE_END,
+        items: [
+          {
+            productVariantId: 'variant-1',
+            salePrice: 150000,
+            quantityLimit: 5,
+          },
+        ],
+      });
+    } catch (err) {
+      caught = err as { getResponse: () => unknown };
+    }
+    expect(caught).toBeInstanceOf(BadRequestException);
+    expect(caught?.getResponse()).toMatchObject({ code: 2212 });
+    expect(flashSaleCreate).not.toHaveBeenCalled();
+  });
+
+  // Chính là bug Finding 1: đợt sale chỉ kéo dài vài giờ TRONG CÙNG NGÀY (vd tạo lúc 09:00,
+  // sale chạy 20:00-22:00) — với deriveDateRangeStatus() (cắt về ngày lịch) nó bị báo RUNNING
+  // ngay khi vừa tạo (khóa luôn sửa/xóa); deriveInstantRangeStatus() phải trả UPCOMING.
+  it('khung giờ vài tiếng trong cùng ngày, chưa tới giờ bắt đầu -> status UPCOMING chứ không phải RUNNING', async () => {
+    const { prisma, flashSaleCreate, flashSaleFindUnique } =
+      createCreateMocks();
+    const startDate = new Date(Date.now() + 60 * 60 * 1000);
+    const endDate = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    flashSaleFindUnique.mockResolvedValue({
+      id: 'fs-new',
+      name: 'Sale tối nay',
+      startDate,
+      endDate,
+      isDelete: false,
+      items: [],
+    });
+    const service = new FlashSalesService(prisma);
+
+    const result = await service.create({
+      name: 'Sale tối nay',
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      items: [
+        { productVariantId: 'variant-1', salePrice: 150000, quantityLimit: 5 },
+      ],
+    });
+
+    expect(flashSaleCreate).toHaveBeenCalled();
+    expect(result.status).toBe('UPCOMING');
+  });
+});
+
 describe('FlashSalesService.update — luật theo trạng thái', () => {
   function createUpdateMocks() {
     const findUnique = jest.fn();
     const update = jest.fn().mockResolvedValue({});
     const flashSaleItemDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    // Nhánh "không đổi items" của update() đọc item hiện có để re-check overlap với khung giờ
+    // MỚI — mặc định trả [] (không có item -> bỏ qua check), test nào cần thì override.
+    const flashSaleItemFindMany = jest.fn().mockResolvedValue([]);
+    const variantFindMany = jest.fn().mockResolvedValue([]);
     const transaction = jest.fn((cb: (tx: unknown) => unknown) =>
       typeof cb === 'function'
         ? cb({
@@ -321,10 +495,22 @@ describe('FlashSalesService.update — luật theo trạng thái', () => {
     );
     const prisma = {
       flashSale: { findUnique, update },
-      flashSaleItem: { deleteMany: flashSaleItemDeleteMany },
+      flashSaleItem: {
+        deleteMany: flashSaleItemDeleteMany,
+        findMany: flashSaleItemFindMany,
+      },
+      productVariant: { findMany: variantFindMany },
       $transaction: transaction,
     } as unknown as PrismaService;
-    return { prisma, findUnique, update, flashSaleItemDeleteMany, transaction };
+    return {
+      prisma,
+      findUnique,
+      update,
+      flashSaleItemDeleteMany,
+      flashSaleItemFindMany,
+      variantFindMany,
+      transaction,
+    };
   }
 
   it('RUNNING + chỉ sửa endDate -> cho phép', async () => {
@@ -390,6 +576,106 @@ describe('FlashSalesService.update — luật theo trạng thái', () => {
     expect(caught?.getResponse()).toMatchObject({ code: 2207 });
     expect(update).not.toHaveBeenCalled();
   });
+
+  // Finding 2: chỉ đổi endDate (không đụng items) vẫn phải re-check overlap của item HIỆN CÓ
+  // với khung giờ MỚI — kéo dài endDate có thể tạo chồng lấn với 1 campaign khác.
+  it('RUNNING + kéo dài endDate khiến item hiện có chồng lấn đợt khác -> ConflictException kèm code 2205, không gọi update', async () => {
+    const { prisma, findUnique, update, flashSaleItemFindMany } =
+      createUpdateMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      name: 'Flash Sale',
+      startDate: new Date(Date.now() - 86400000),
+      endDate: new Date(Date.now() + 3600000),
+      isDelete: false,
+    });
+    // Lần 1: item hiện có của chính campaign này. Lần 2: kết quả check overlap.
+    flashSaleItemFindMany.mockResolvedValueOnce([
+      { id: 'item-1', flashSaleId: 'fs-1', productVariantId: 'variant-1' },
+    ]);
+    flashSaleItemFindMany.mockResolvedValueOnce([
+      {
+        productVariantId: 'variant-1',
+        flashSaleId: 'other-flash-sale',
+        flashSale: { name: 'Đợt sale khác' },
+        productVariant: { sku: 'SKU-1' },
+      },
+    ]);
+    const service = new FlashSalesService(prisma);
+
+    let caught: ConflictException | undefined;
+    try {
+      await service.update('fs-1', {
+        endDate: new Date(Date.now() + 7 * 86400000).toISOString(),
+      });
+    } catch (err) {
+      caught = err as ConflictException;
+    }
+    expect(caught).toBeInstanceOf(ConflictException);
+    expect(caught?.getResponse()).toMatchObject({ code: 2205 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  // Finding 5: nhánh thay thế toàn bộ items (UPCOMING + dto.items) chạy trong $transaction
+  // dạng MẢNG — deleteMany item cũ rồi update kèm items.create mới, phải cùng 1 transaction.
+  it('UPCOMING + đổi items -> $transaction nhận mảng gồm deleteMany và update kèm items.create', async () => {
+    const {
+      prisma,
+      findUnique,
+      update,
+      flashSaleItemDeleteMany,
+      variantFindMany,
+      transaction,
+    } = createUpdateMocks();
+    const futureStart = new Date(Date.now() + 86400000);
+    const futureEnd = new Date(Date.now() + 172800000);
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      name: 'Flash Sale',
+      startDate: futureStart,
+      endDate: futureEnd,
+      isDelete: false,
+    });
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: futureStart,
+      endDate: futureEnd,
+      items: [],
+    });
+    variantFindMany.mockResolvedValue([
+      variant({ id: 'variant-1', price: 200000, stockQuantity: 10 }),
+    ]);
+    const service = new FlashSalesService(prisma);
+
+    await service.update('fs-1', {
+      items: [
+        { productVariantId: 'variant-1', salePrice: 150000, quantityLimit: 5 },
+      ],
+    });
+
+    expect(transaction).toHaveBeenCalledWith(expect.any(Array));
+    expect((transaction.mock.calls[0][0] as unknown[]).length).toBe(2);
+    expect(flashSaleItemDeleteMany).toHaveBeenCalledWith({
+      where: { flashSaleId: 'fs-1' },
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'fs-1' },
+      data: {
+        name: undefined,
+        startDate: undefined,
+        endDate: undefined,
+        items: {
+          create: [
+            {
+              productVariantId: 'variant-1',
+              salePrice: new Prisma.Decimal(150000),
+              quantityLimit: 5,
+            },
+          ],
+        },
+      },
+    });
+  });
 });
 
 describe('FlashSalesService.endNow', () => {
@@ -445,13 +731,25 @@ describe('FlashSalesService.endNow', () => {
 
 describe('FlashSalesService.remove', () => {
   function createRemoveMocks() {
+    // $transaction phải THỰC SỰ gọi callback được truyền vào, nếu không thân hàm remove()
+    // (deleteMany + update) không bao giờ chạy dưới test và assertion "xóa mềm thành công"
+    // chỉ đang kiểm tra rằng $transaction được gọi, chứ không kiểm tra nó làm gì.
     const findUnique = jest.fn();
-    const transaction = jest.fn().mockResolvedValue([]);
+    const txDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    const txUpdate = jest.fn().mockResolvedValue({});
+    const transaction = jest.fn((cb: unknown) =>
+      typeof cb === 'function'
+        ? (cb as (tx: unknown) => unknown)({
+            flashSaleItem: { deleteMany: txDeleteMany },
+            flashSale: { update: txUpdate },
+          })
+        : Promise.resolve([]),
+    );
     const prisma = {
       flashSale: { findUnique },
       $transaction: transaction,
     } as unknown as PrismaService;
-    return { prisma, findUnique, transaction };
+    return { prisma, findUnique, transaction, txDeleteMany, txUpdate };
   }
 
   it('đang RUNNING -> ConflictException kèm code 2208, không xóa', async () => {
@@ -468,8 +766,9 @@ describe('FlashSalesService.remove', () => {
     expect(transaction).not.toHaveBeenCalled();
   });
 
-  it('UPCOMING -> xóa mềm thành công', async () => {
-    const { prisma, findUnique, transaction } = createRemoveMocks();
+  it('UPCOMING -> xóa mềm thành công (xóa item con + set isDelete trong cùng transaction)', async () => {
+    const { prisma, findUnique, transaction, txDeleteMany, txUpdate } =
+      createRemoveMocks();
     findUnique.mockResolvedValueOnce({
       id: 'fs-1',
       startDate: new Date(Date.now() + 86400000),
@@ -481,6 +780,13 @@ describe('FlashSalesService.remove', () => {
     await service.remove('fs-1');
 
     expect(transaction).toHaveBeenCalled();
+    expect(txDeleteMany).toHaveBeenCalledWith({
+      where: { flashSaleId: 'fs-1' },
+    });
+    expect(txUpdate).toHaveBeenCalledWith({
+      where: { id: 'fs-1' },
+      data: { isDelete: true },
+    });
   });
 });
 
