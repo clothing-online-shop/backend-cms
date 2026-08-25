@@ -977,4 +977,50 @@ describe('FlashSalesService.addItems', () => {
     expect(caught?.getResponse()).toMatchObject({ code: 2205 });
     expect(itemCreateMany).not.toHaveBeenCalled();
   });
+
+  it('createMany vi phạm unique constraint (race condition) -> ConflictException kèm code 2205, không lộ lỗi Prisma thô', async () => {
+    const {
+      prisma,
+      flashSaleFindUnique,
+      variantFindMany,
+      itemFindMany,
+      itemCreateMany,
+    } = createAddItemsMocks();
+    const startDate = new Date(Date.now() - 86400000);
+    const endDate = new Date(Date.now() + 86400000);
+    flashSaleFindUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate,
+      endDate,
+      isDelete: false,
+    });
+    variantFindMany.mockResolvedValue([
+      variant({ id: 'variant-3', price: 200000, stockQuantity: 10 }),
+    ]);
+    itemFindMany.mockResolvedValue([]);
+    itemCreateMany.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '5.0.0',
+      }),
+    );
+    const service = new FlashSalesService(prisma);
+
+    let caught: ConflictException | undefined;
+    try {
+      await service.addItems('fs-1', {
+        items: [
+          {
+            productVariantId: 'variant-3',
+            salePrice: 150000,
+            quantityLimit: 2,
+          },
+        ],
+      });
+    } catch (err) {
+      caught = err as ConflictException;
+    }
+    expect(caught).toBeInstanceOf(ConflictException);
+    expect(caught?.getResponse()).toMatchObject({ code: 2205 });
+  });
 });

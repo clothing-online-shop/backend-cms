@@ -170,7 +170,7 @@ export class FlashSalesService {
       if (attemptingBlockedField) {
         throw new ConflictException({
           message:
-            'Đợt Flash Sale đang diễn ra — chỉ có thể sửa ngày kết thúc.',
+            'Đợt Flash Sale đang diễn ra — chỉ có thể sửa ngày kết thúc. Để thêm sản phẩm, dùng POST /flash-sales/:id/items.',
           code: ErrorCode.FLASH_SALE_UPDATE_FIELD_BLOCKED_RUNNING,
         });
       }
@@ -327,15 +327,37 @@ export class FlashSalesService {
 
     // CHỈ createMany — không có bước deleteMany nào, khác hẳn update()'s items-branch (vốn
     // thay thế toàn bộ). Đây là điểm cốt lõi của toàn bộ tính năng: "chỉ được cộng thêm".
-    await this.prisma.flashSaleItem.createMany({
-      data: items.map((item) => ({ ...item, flashSaleId: id })),
-    });
+    //
+    // validateFlashSaleItems() ở trên là 1 lần đọc "lạc quan" — 2 request POST /items cùng gửi
+    // đúng 1 productVariantId gần như đồng thời có thể cùng vượt qua validate rồi cùng chạm
+    // tới đây, request thua sẽ vi phạm @@unique([flashSaleId, productVariantId]) ở DB. Không
+    // bắt riêng thì lỗi P2002 thô sẽ rơi thẳng vào AllExceptionsFilter, trả về 500 chung chung
+    // (không có field `code` để FE map thông báo) và bắn nhầm 1 alert Sentry cho 1 tình huống
+    // không phải lỗi hệ thống — bắt riêng ở đây để trả đúng 409 có code, giống cách
+    // ProductsService xử lý P2003 khi xóa variant đang bị ràng buộc.
+    try {
+      await this.prisma.flashSaleItem.createMany({
+        data: items.map((item) => ({ ...item, flashSaleId: id })),
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException({
+          message: 'Biến thể đã có trong đợt Flash Sale này.',
+          code: ErrorCode.FLASH_SALE_VARIANT_OVERLAP,
+        });
+      }
+      throw err;
+    }
 
     return this.findOne(id);
   }
 
-  // Dùng lại ở Task 7-8 (update/endNow/remove/updateSoldCount) — trả về bản ghi FlashSale
-  // TRẦN (không kèm items), đủ để đọc startDate/endDate/isDelete quyết định luật sửa/xóa.
+  // Dùng chung cho mọi method cần biết trạng thái hiện tại trước khi ghi (update/endNow/
+  // remove/updateSoldCount/addItems) — trả về bản ghi FlashSale TRẦN (không kèm items), đủ để
+  // đọc startDate/endDate/isDelete quyết định luật sửa/xóa/thêm.
   private async findExisting(id: string): Promise<FlashSale> {
     const flashSale = await this.prisma.flashSale.findUnique({ where: { id } });
     if (!flashSale || flashSale.isDelete) {
