@@ -2,6 +2,8 @@ import {
   toInclusiveEndOfDay,
   toInclusiveStartOfDay,
   isDateInPast,
+  deriveInstantRangeStatus,
+  isInstantInPast,
 } from './date.util';
 
 // So bằng toISOString() (luôn quy về UTC, không phụ thuộc múi giờ máy chạy test) — 2 hàm
@@ -60,5 +62,44 @@ describe('isDateInPast', () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     expect(isDateInPast(tomorrow.toISOString())).toBe(false);
+  });
+});
+
+// Cặp hàm dành cho Flash Sale — so theo TIMESTAMP chính xác (không cắt về ngày lịch), nên
+// các case dưới đây cố ý dùng chênh lệch GIỜ trong cùng 1 ngày: đó chính là phần
+// deriveDateRangeStatus()/isDateInPast() trả sai cho Flash Sale.
+describe('deriveInstantRangeStatus', () => {
+  const ONE_HOUR = 60 * 60 * 1000;
+
+  it('now trước startDate (cùng ngày, muộn hơn vài giờ) → UPCOMING', () => {
+    const start = new Date(Date.now() + ONE_HOUR);
+    const end = new Date(Date.now() + 2 * ONE_HOUR);
+    expect(deriveInstantRangeStatus(start, end)).toBe('UPCOMING');
+  });
+
+  it('now nằm giữa startDate và endDate → RUNNING', () => {
+    const start = new Date(Date.now() - ONE_HOUR);
+    const end = new Date(Date.now() + ONE_HOUR);
+    expect(deriveInstantRangeStatus(start, end)).toBe('RUNNING');
+  });
+
+  it('now sau endDate (cùng ngày, sớm hơn vài giờ) → ENDED', () => {
+    const start = new Date(Date.now() - 2 * ONE_HOUR);
+    const end = new Date(Date.now() - ONE_HOUR);
+    expect(deriveInstantRangeStatus(start, end)).toBe('ENDED');
+  });
+});
+
+describe('isInstantInPast', () => {
+  const ONE_HOUR = 60 * 60 * 1000;
+
+  it('mốc thời gian 1 giờ trước → true (dù vẫn trong cùng ngày lịch)', () => {
+    const oneHourAgo = new Date(Date.now() - ONE_HOUR);
+    expect(isInstantInPast(oneHourAgo.toISOString())).toBe(true);
+  });
+
+  it('mốc thời gian 1 giờ nữa → false', () => {
+    const inOneHour = new Date(Date.now() + ONE_HOUR);
+    expect(isInstantInPast(inOneHour.toISOString())).toBe(false);
   });
 });
