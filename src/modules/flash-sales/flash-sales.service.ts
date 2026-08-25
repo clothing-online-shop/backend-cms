@@ -22,6 +22,7 @@ import { FlashSaleItemInputDto } from './dto/flash-sale-item-input.dto';
 import { CreateFlashSaleDto } from './dto/create-flash-sale.dto';
 import { UpdateFlashSaleDto } from './dto/update-flash-sale.dto';
 import { UpdateSoldCountDto } from './dto/update-sold-count.dto';
+import { AddFlashSaleItemsDto } from './dto/add-flash-sale-items.dto';
 
 export type FlashSaleListItem = FlashSale & {
   status: DateRangeStatus;
@@ -293,6 +294,43 @@ export class FlashSalesService {
       where: { id: itemId },
       data: { soldCount: dto.soldCount },
     });
+    return this.findOne(id);
+  }
+
+  async addItems(
+    id: string,
+    dto: AddFlashSaleItemsDto,
+  ): Promise<FlashSaleDetail> {
+    const existing = await this.findExisting(id);
+    const status = deriveInstantRangeStatus(
+      existing.startDate,
+      existing.endDate,
+    );
+    if (status !== 'RUNNING') {
+      throw new ConflictException({
+        message: 'Chỉ có thể thêm sản phẩm vào đợt Flash Sale đang diễn ra.',
+        code: ErrorCode.FLASH_SALE_ADD_ITEMS_NOT_RUNNING,
+      });
+    }
+
+    // excludeFlashSaleId: null (không loại trừ chính campaign này) — khác nhánh update()'s
+    // items-branch (dùng id chính nó để loại trừ, vì lúc đó item cũ đã bị xóa trước khi validate).
+    // Ở đây item cũ KHÔNG bị xóa, nên overlap-check phải tự nhiên bắt được cả trường hợp thêm
+    // lại 1 biến thể đã có sẵn trong chính campaign này.
+    const items = await validateFlashSaleItems(
+      this.prisma,
+      dto.items,
+      existing.startDate,
+      existing.endDate,
+      null,
+    );
+
+    // CHỈ createMany — không có bước deleteMany nào, khác hẳn update()'s items-branch (vốn
+    // thay thế toàn bộ). Đây là điểm cốt lõi của toàn bộ tính năng: "chỉ được cộng thêm".
+    await this.prisma.flashSaleItem.createMany({
+      data: items.map((item) => ({ ...item, flashSaleId: id })),
+    });
+
     return this.findOne(id);
   }
 

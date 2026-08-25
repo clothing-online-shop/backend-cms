@@ -838,3 +838,143 @@ describe('FlashSalesService.updateSoldCount', () => {
     expect(caught?.getResponse()).toMatchObject({ code: 2209 });
   });
 });
+
+describe('FlashSalesService.addItems', () => {
+  function createAddItemsMocks() {
+    const flashSaleFindUnique = jest.fn();
+    const variantFindMany = jest.fn();
+    const itemFindMany = jest.fn();
+    const itemCreateMany = jest.fn().mockResolvedValue({ count: 0 });
+    const prisma = {
+      flashSale: { findUnique: flashSaleFindUnique },
+      productVariant: { findMany: variantFindMany },
+      flashSaleItem: { findMany: itemFindMany, createMany: itemCreateMany },
+    } as unknown as PrismaService;
+    return {
+      prisma,
+      flashSaleFindUnique,
+      variantFindMany,
+      itemFindMany,
+      itemCreateMany,
+    };
+  }
+
+  it('không phải RUNNING (UPCOMING) -> ConflictException kèm code 2214, không gọi createMany', async () => {
+    const { prisma, flashSaleFindUnique, itemCreateMany } =
+      createAddItemsMocks();
+    flashSaleFindUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date(Date.now() + 86400000),
+      endDate: new Date(Date.now() + 172800000),
+      isDelete: false,
+    });
+    const service = new FlashSalesService(prisma);
+
+    let caught: { getResponse: () => unknown } | undefined;
+    try {
+      await service.addItems('fs-1', {
+        items: [
+          { productVariantId: 'variant-1', salePrice: 1000, quantityLimit: 1 },
+        ],
+      });
+    } catch (err) {
+      caught = err as { getResponse: () => unknown };
+    }
+    expect(caught?.getResponse()).toMatchObject({ code: 2214 });
+    expect(itemCreateMany).not.toHaveBeenCalled();
+  });
+
+  it('RUNNING + item hợp lệ -> createMany thêm item mới, KHÔNG gọi deleteMany bao giờ', async () => {
+    const {
+      prisma,
+      flashSaleFindUnique,
+      variantFindMany,
+      itemFindMany,
+      itemCreateMany,
+    } = createAddItemsMocks();
+    const startDate = new Date(Date.now() - 86400000);
+    const endDate = new Date(Date.now() + 86400000);
+    flashSaleFindUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate,
+      endDate,
+      isDelete: false,
+    });
+    variantFindMany.mockResolvedValue([
+      variant({ id: 'variant-2', price: 200000, stockQuantity: 10 }),
+    ]);
+    itemFindMany.mockResolvedValue([]);
+    flashSaleFindUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate,
+      endDate,
+      items: [],
+    });
+    const service = new FlashSalesService(prisma);
+
+    await service.addItems('fs-1', {
+      items: [
+        { productVariantId: 'variant-2', salePrice: 150000, quantityLimit: 3 },
+      ],
+    });
+
+    expect(itemCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          productVariantId: 'variant-2',
+          salePrice: new Prisma.Decimal(150000),
+          quantityLimit: 3,
+          flashSaleId: 'fs-1',
+        },
+      ],
+    });
+    // KHÔNG mock prisma.flashSaleItem.deleteMany ở test này — nếu addItems() lỡ gọi
+    // deleteMany (giống nhầm sang cơ chế thay thế toàn bộ của update()), test sẽ crash ngay
+    // tại đây vì "deleteMany is not a function", tự bắt được deviation quan trọng nhất.
+  });
+
+  it('RUNNING + trùng biến thể đã có sẵn trong chính campaign -> ConflictException kèm code 2205', async () => {
+    const {
+      prisma,
+      flashSaleFindUnique,
+      variantFindMany,
+      itemFindMany,
+      itemCreateMany,
+    } = createAddItemsMocks();
+    const startDate = new Date(Date.now() - 86400000);
+    const endDate = new Date(Date.now() + 86400000);
+    flashSaleFindUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate,
+      endDate,
+      isDelete: false,
+    });
+    variantFindMany.mockResolvedValue([variant({ id: 'variant-1' })]);
+    // Item trùng thuộc CHÍNH campaign đang thêm (flashSaleId: 'fs-1') — addItems() gọi
+    // validateFlashSaleItems() với excludeFlashSaleId=null (không loại trừ chính nó), nên
+    // overlap-check phải tự bắt được trường hợp "thêm lại 1 biến thể đã có sẵn".
+    itemFindMany.mockResolvedValue([
+      {
+        productVariantId: 'variant-1',
+        flashSaleId: 'fs-1',
+        flashSale: { name: 'Flash Sale' },
+        productVariant: { sku: 'SKU-1' },
+      },
+    ]);
+    const service = new FlashSalesService(prisma);
+
+    let caught: ConflictException | undefined;
+    try {
+      await service.addItems('fs-1', {
+        items: [
+          { productVariantId: 'variant-1', salePrice: 1000, quantityLimit: 1 },
+        ],
+      });
+    } catch (err) {
+      caught = err as ConflictException;
+    }
+    expect(caught).toBeInstanceOf(ConflictException);
+    expect(caught?.getResponse()).toMatchObject({ code: 2205 });
+    expect(itemCreateMany).not.toHaveBeenCalled();
+  });
+});
