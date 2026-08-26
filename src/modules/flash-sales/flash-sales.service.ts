@@ -8,6 +8,7 @@ import { FlashSale, Prisma } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import {
   assertDateRange,
+  assertStartDateNotInPast,
   deriveInstantRangeStatus,
   isInstantInPast,
   type DateRangeStatus,
@@ -126,7 +127,11 @@ export class FlashSalesService {
 
   async create(dto: CreateFlashSaleDto): Promise<FlashSaleDetail> {
     assertDateRange(dto.startDate, dto.endDate);
-    assertStartDateNotInPast(dto.startDate);
+    assertStartDateNotInPast(
+      dto.startDate,
+      isInstantInPast,
+      ErrorCode.FLASH_SALE_START_DATE_IN_PAST,
+    );
 
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
@@ -180,7 +185,11 @@ export class FlashSalesService {
     const endDate = dto.endDate ?? existing.endDate.toISOString();
     assertDateRange(startDate, endDate);
     if (status === 'UPCOMING' && dto.startDate) {
-      assertStartDateNotInPast(dto.startDate);
+      assertStartDateNotInPast(
+        dto.startDate,
+        isInstantInPast,
+        ErrorCode.FLASH_SALE_START_DATE_IN_PAST,
+      );
     }
 
     if (dto.items) {
@@ -264,9 +273,14 @@ export class FlashSalesService {
         code: ErrorCode.FLASH_SALE_DELETE_BLOCKED_RUNNING,
       });
     }
-    await this.prisma.$transaction(async (tx) => {
-      await tx.flashSaleItem.deleteMany({ where: { flashSaleId: id } });
-      await tx.flashSale.update({ where: { id }, data: { isDelete: true } });
+    // CHỈ soft-delete FlashSale — không đụng tới FlashSaleItem (đặc biệt soldCount, số liệu
+    // báo cáo đã bán được bao nhiêu theo từng SKU của 1 đợt ĐÃ ENDED). Trước đây hard-delete
+    // cả items ở đây khiến xóa 1 đợt đã chạy xong xóa mất luôn lịch sử bán hàng — items của
+    // đợt đã soft-delete tự nhiên không truy cập được qua findAll()/findOne() (đều lọc
+    // isDelete: false) nên không cần dọn thêm, giữ lại vô hại và có sẵn cho báo cáo sau này.
+    await this.prisma.flashSale.update({
+      where: { id },
+      data: { isDelete: true },
     });
   }
 
@@ -514,15 +528,6 @@ async function assertNoVariantOverlap(
     throw new ConflictException({
       message: `Biến thể (SKU: ${first.productVariant.sku}) đã tham gia đợt Flash Sale "${first.flashSale.name}" trong cùng khoảng thời gian.`,
       code: ErrorCode.FLASH_SALE_VARIANT_OVERLAP,
-    });
-  }
-}
-
-function assertStartDateNotInPast(startDate: string): void {
-  if (isInstantInPast(startDate)) {
-    throw new BadRequestException({
-      message: 'Ngày bắt đầu không được ở trong quá khứ.',
-      code: ErrorCode.FLASH_SALE_START_DATE_IN_PAST,
     });
   }
 }

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, type HttpException } from '@nestjs/common';
 import { ErrorCode } from '../constants/error-codes';
 
 // So sánh theo ngày lịch (bỏ qua giờ) — dùng chung giữa nhiều module có khái niệm
@@ -112,4 +112,25 @@ export function deriveInstantRangeStatus(
 // (so ngày) thì campaign này sẽ bị coi là RUNNING ngay khi vừa tạo thay vì đúng là UPCOMING.
 export function isInstantInPast(date: string): boolean {
   return new Date(date).getTime() < Date.now();
+}
+
+// Dùng chung cho Collection/Banner/Flash Sale — trước đây mỗi module tự viết 1 bản
+// `assertStartDateNotInPast()` y hệt nhau (chỉ khác hàm `isInPast` truyền vào và code lỗi).
+// `ExceptionClass` mặc định `BadRequestException` (đúng ngữ nghĩa 400 cho input không hợp
+// lệ), nhận thêm tham số để Collection giữ nguyên `ConflictException` đã dùng từ trước —
+// gộp code trùng lặp nhưng KHÔNG đổi status code đang trả về của module đó.
+export function assertStartDateNotInPast(
+  startDate: string,
+  isInPast: (date: string) => boolean,
+  errorCode: number,
+  ExceptionClass: new (
+    response: Record<string, unknown>,
+  ) => HttpException = BadRequestException,
+): void {
+  if (isInPast(startDate)) {
+    throw new ExceptionClass({
+      message: 'Ngày bắt đầu không được ở trong quá khứ.',
+      code: errorCode,
+    });
+  }
 }

@@ -15,6 +15,7 @@ import { BannerStatus } from './banner-status.enum';
 import {
   deriveDateRangeStatus,
   assertDateRange,
+  assertStartDateNotInPast,
   isDateInPast,
 } from '../../common/utils/date.util';
 import { assertImagePublicIdAligned } from '../../common/utils/image-pairing.util';
@@ -69,7 +70,11 @@ export class BannersService {
 
   async create(dto: CreateBannerDto): Promise<BannerWithStatus> {
     assertDateRange(dto.startDate, dto.endDate);
-    assertStartDateNotInPast(dto.startDate);
+    assertStartDateNotInPast(
+      dto.startDate,
+      isDateInPast,
+      ErrorCode.BANNER_START_DATE_IN_PAST,
+    );
 
     // Không mặc định sortOrder về 0 (default của cột) cho mọi banner mới — nếu không, các
     // banner tạo liên tiếp đều cùng sortOrder=0, khiến nút lên/xuống ở FE hoán đổi 2 giá
@@ -109,7 +114,11 @@ export class BannersService {
       dto.startDate !== undefined &&
       new Date(dto.startDate).getTime() !== existing.startDate.getTime();
     if (startDateChanged) {
-      assertStartDateNotInPast(dto.startDate!);
+      assertStartDateNotInPast(
+        dto.startDate!,
+        isDateInPast,
+        ErrorCode.BANNER_START_DATE_IN_PAST,
+      );
     }
 
     const imageChanged =
@@ -193,15 +202,6 @@ export class BannersService {
       select: { sortOrder: true },
     });
     return (last?.sortOrder ?? -1) + 1;
-  }
-}
-
-function assertStartDateNotInPast(startDate: string): void {
-  if (isDateInPast(startDate)) {
-    throw new BadRequestException({
-      message: 'Ngày bắt đầu không được ở trong quá khứ.',
-      code: ErrorCode.BANNER_START_DATE_IN_PAST,
-    });
   }
 }
 

@@ -731,29 +731,21 @@ describe('FlashSalesService.endNow', () => {
 
 describe('FlashSalesService.remove', () => {
   function createRemoveMocks() {
-    // $transaction phải THỰC SỰ gọi callback được truyền vào, nếu không thân hàm remove()
-    // (deleteMany + update) không bao giờ chạy dưới test và assertion "xóa mềm thành công"
-    // chỉ đang kiểm tra rằng $transaction được gọi, chứ không kiểm tra nó làm gì.
     const findUnique = jest.fn();
-    const txDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
-    const txUpdate = jest.fn().mockResolvedValue({});
-    const transaction = jest.fn((cb: unknown) =>
-      typeof cb === 'function'
-        ? (cb as (tx: unknown) => unknown)({
-            flashSaleItem: { deleteMany: txDeleteMany },
-            flashSale: { update: txUpdate },
-          })
-        : Promise.resolve([]),
-    );
+    // KHÔNG mock prisma.flashSaleItem.deleteMany/$transaction ở đây — remove() chỉ còn
+    // soft-delete FlashSale (xem lý do trong service: xóa cứng item con sẽ mất luôn
+    // soldCount/lịch sử bán của 1 đợt ĐÃ ENDED). Nếu remove() lỡ quay lại gọi deleteMany hay
+    // $transaction, test sẽ crash ngay vì các hàm đó không tồn tại trên mock, tự bắt được
+    // deviation quan trọng nhất thay vì phải tự nhớ assert phủ định ở từng test.
+    const update = jest.fn().mockResolvedValue({});
     const prisma = {
-      flashSale: { findUnique },
-      $transaction: transaction,
+      flashSale: { findUnique, update },
     } as unknown as PrismaService;
-    return { prisma, findUnique, transaction, txDeleteMany, txUpdate };
+    return { prisma, findUnique, update };
   }
 
   it('đang RUNNING -> ConflictException kèm code 2208, không xóa', async () => {
-    const { prisma, findUnique, transaction } = createRemoveMocks();
+    const { prisma, findUnique, update } = createRemoveMocks();
     findUnique.mockResolvedValueOnce({
       id: 'fs-1',
       startDate: new Date(Date.now() - 86400000),
@@ -763,12 +755,11 @@ describe('FlashSalesService.remove', () => {
     const service = new FlashSalesService(prisma);
 
     await expect(service.remove('fs-1')).rejects.toMatchObject({ status: 409 });
-    expect(transaction).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 
-  it('UPCOMING -> xóa mềm thành công (xóa item con + set isDelete trong cùng transaction)', async () => {
-    const { prisma, findUnique, transaction, txDeleteMany, txUpdate } =
-      createRemoveMocks();
+  it('UPCOMING -> xóa mềm đợt, KHÔNG đụng tới item con', async () => {
+    const { prisma, findUnique, update } = createRemoveMocks();
     findUnique.mockResolvedValueOnce({
       id: 'fs-1',
       startDate: new Date(Date.now() + 86400000),
@@ -779,11 +770,25 @@ describe('FlashSalesService.remove', () => {
 
     await service.remove('fs-1');
 
-    expect(transaction).toHaveBeenCalled();
-    expect(txDeleteMany).toHaveBeenCalledWith({
-      where: { flashSaleId: 'fs-1' },
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'fs-1' },
+      data: { isDelete: true },
     });
-    expect(txUpdate).toHaveBeenCalledWith({
+  });
+
+  it('đã ENDED -> vẫn xóa mềm được (không hard-delete item con, giữ soldCount báo cáo)', async () => {
+    const { prisma, findUnique, update } = createRemoveMocks();
+    findUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date(Date.now() - 172800000),
+      endDate: new Date(Date.now() - 86400000),
+      isDelete: false,
+    });
+    const service = new FlashSalesService(prisma);
+
+    await service.remove('fs-1');
+
+    expect(update).toHaveBeenCalledWith({
       where: { id: 'fs-1' },
       data: { isDelete: true },
     });
