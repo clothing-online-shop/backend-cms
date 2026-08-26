@@ -933,6 +933,85 @@ describe('FlashSalesService.addItems', () => {
     // tại đây vì "deleteMany is not a function", tự bắt được deviation quan trọng nhất.
   });
 
+  it('RUNNING + thêm nhiều item cùng lúc -> createMany nhận đủ mảng, giữ đúng thứ tự', async () => {
+    const {
+      prisma,
+      flashSaleFindUnique,
+      variantFindMany,
+      itemFindMany,
+      itemCreateMany,
+    } = createAddItemsMocks();
+    const startDate = new Date(Date.now() - 86400000);
+    const endDate = new Date(Date.now() + 86400000);
+    flashSaleFindUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate,
+      endDate,
+      isDelete: false,
+    });
+    variantFindMany.mockResolvedValue([
+      variant({ id: 'variant-2', price: 200000, stockQuantity: 10 }),
+      variant({ id: 'variant-3', price: 300000, stockQuantity: 5 }),
+    ]);
+    itemFindMany.mockResolvedValue([]);
+    flashSaleFindUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate,
+      endDate,
+      items: [],
+    });
+    const service = new FlashSalesService(prisma);
+
+    await service.addItems('fs-1', {
+      items: [
+        { productVariantId: 'variant-2', salePrice: 150000, quantityLimit: 3 },
+        { productVariantId: 'variant-3', salePrice: 250000, quantityLimit: 2 },
+      ],
+    });
+
+    expect(itemCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          productVariantId: 'variant-2',
+          salePrice: new Prisma.Decimal(150000),
+          quantityLimit: 3,
+          flashSaleId: 'fs-1',
+        },
+        {
+          productVariantId: 'variant-3',
+          salePrice: new Prisma.Decimal(250000),
+          quantityLimit: 2,
+          flashSaleId: 'fs-1',
+        },
+      ],
+    });
+  });
+
+  it('đã ENDED -> ConflictException kèm code 2214, không gọi createMany (cùng nhánh status !== RUNNING với UPCOMING)', async () => {
+    const { prisma, flashSaleFindUnique, itemCreateMany } =
+      createAddItemsMocks();
+    flashSaleFindUnique.mockResolvedValueOnce({
+      id: 'fs-1',
+      startDate: new Date('2020-01-01'),
+      endDate: new Date('2020-02-01'),
+      isDelete: false,
+    });
+    const service = new FlashSalesService(prisma);
+
+    let caught: { getResponse: () => unknown } | undefined;
+    try {
+      await service.addItems('fs-1', {
+        items: [
+          { productVariantId: 'variant-1', salePrice: 1000, quantityLimit: 1 },
+        ],
+      });
+    } catch (err) {
+      caught = err as { getResponse: () => unknown };
+    }
+    expect(caught?.getResponse()).toMatchObject({ code: 2214 });
+    expect(itemCreateMany).not.toHaveBeenCalled();
+  });
+
   it('RUNNING + trùng biến thể đã có sẵn trong chính campaign -> ConflictException kèm code 2205', async () => {
     const {
       prisma,
