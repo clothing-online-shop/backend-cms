@@ -3,15 +3,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Banner, Prisma } from '@prisma/client';
+import { Popup, Prisma } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { UploadService } from '../upload/upload.service';
-import { CreateBannerDto } from './dto/create-banner.dto';
-import { UpdateBannerDto } from './dto/update-banner.dto';
-import { ListBannersQueryDto } from './dto/list-banners-query.dto';
-import { ReorderBannersDto } from './dto/reorder-banners.dto';
+import { CreatePopupDto } from './dto/create-popup.dto';
+import { UpdatePopupDto } from './dto/update-popup.dto';
+import { ListPopupsQueryDto } from './dto/list-popups-query.dto';
+import { ReorderPopupsDto } from './dto/reorder-popups.dto';
 import { ErrorCode } from '../../common/constants/error-codes';
-import { BannerStatus } from './banner-status.enum';
+import { PopupStatus } from './popup-status.enum';
 import {
   deriveDateRangeStatus,
   assertDateRange,
@@ -25,70 +25,66 @@ import {
   type PageMeta,
 } from '../../common/utils/pagination.util';
 
-export type BannerWithStatus = Banner & { status: BannerStatus };
+export type PopupWithStatus = Popup & { status: PopupStatus };
 
 @Injectable()
-export class BannersService {
+export class PopupsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly uploadService: UploadService,
   ) {}
 
   async findAll(
-    query: ListBannersQueryDto,
-  ): Promise<{ data: BannerWithStatus[]; meta: PageMeta }> {
+    query: ListPopupsQueryDto,
+  ): Promise<{ data: PopupWithStatus[]; meta: PageMeta }> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
-    const where: Prisma.BannerWhereInput = {};
+    const where: Prisma.PopupWhereInput = {};
     if (query.search) {
       where.title = { contains: query.search, mode: 'insensitive' };
     }
 
-    // Không như Voucher/Collection — banner không có field suy ra (status tính từ
-    // startDate/endDate nhưng không dùng để lọc ở findAll() này), where() ở trên đã đủ thu
-    // hẹp toàn bộ điều kiện lọc nên phân trang thẳng ở DB được, không cần cắt mảng thủ công.
-    const [banners, total] = await this.prisma.$transaction([
-      this.prisma.banner.findMany({
+    const [popups, total] = await this.prisma.$transaction([
+      this.prisma.popup.findMany({
         where,
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         ...buildSkipTake(page, limit),
       }),
-      this.prisma.banner.count({ where }),
+      this.prisma.popup.count({ where }),
     ]);
 
     return {
-      data: banners.map(withStatus),
+      data: popups.map(withStatus),
       meta: buildPageMeta(total, page, limit),
     };
   }
 
-  async findOne(id: string): Promise<BannerWithStatus> {
-    const banner = await this.findExisting(id);
-    return withStatus(banner);
+  async findOne(id: string): Promise<PopupWithStatus> {
+    const popup = await this.findExisting(id);
+    return withStatus(popup);
   }
 
-  async create(dto: CreateBannerDto): Promise<BannerWithStatus> {
+  async create(dto: CreatePopupDto): Promise<PopupWithStatus> {
     assertDateRange(dto.startDate, dto.endDate);
     assertStartDateNotInPast(
       dto.startDate,
       isDateInPast,
-      ErrorCode.BANNER_START_DATE_IN_PAST,
+      ErrorCode.POPUP_START_DATE_IN_PAST,
     );
 
-    // Không mặc định sortOrder về 0 (default của cột) cho mọi banner mới — nếu không, các
-    // banner tạo liên tiếp đều cùng sortOrder=0, khiến nút lên/xuống ở FE hoán đổi 2 giá
-    // trị giống hệt nhau (no-op nhìn như không hoạt động). Banner mới luôn xếp cuối danh
-    // sách hiển thị theo mặc định.
+    // Popup mới luôn xếp cuối danh sách hiển thị theo mặc định — tương tự Banner, xem
+    // banners.service.ts.
     const sortOrder = dto.sortOrder ?? (await this.resolveNextSortOrder());
 
-    const banner = await this.prisma.banner.create({
+    const popup = await this.prisma.popup.create({
       data: {
+        eyebrow: dto.eyebrow,
         title: dto.title,
-        subtitle: dto.subtitle,
+        description: dto.description,
+        discountCode: dto.discountCode,
         imageUrl: dto.imageUrl,
         imagePublicId: dto.imagePublicId,
-        linkUrl: dto.linkUrl,
         ctaLabel: dto.ctaLabel,
         ctaLinkUrl: dto.ctaLinkUrl,
         sortOrder,
@@ -96,10 +92,10 @@ export class BannersService {
         endDate: new Date(dto.endDate),
       },
     });
-    return withStatus(banner);
+    return withStatus(popup);
   }
 
-  async update(id: string, dto: UpdateBannerDto): Promise<BannerWithStatus> {
+  async update(id: string, dto: UpdatePopupDto): Promise<PopupWithStatus> {
     assertImagePublicIdAligned(dto.imageUrl, dto.imagePublicId, {
       image: 'imageUrl',
       imagePublicId: 'imagePublicId',
@@ -110,9 +106,6 @@ export class BannersService {
     const endDate = dto.endDate ?? existing.endDate.toISOString();
     assertDateRange(startDate, endDate);
 
-    // Chỉ chặn quá khứ khi startDate THỰC SỰ đổi sang giá trị mới — banner đã RUNNING/ENDED
-    // có startDate vốn dĩ đã ở quá khứ (đúng bản chất), sửa field khác (linkUrl, ảnh...) mà
-    // vẫn gửi lại nguyên startDate cũ không được vô tình bị chặn.
     const startDateChanged =
       dto.startDate !== undefined &&
       new Date(dto.startDate).getTime() !== existing.startDate.getTime();
@@ -120,22 +113,23 @@ export class BannersService {
       assertStartDateNotInPast(
         dto.startDate!,
         isDateInPast,
-        ErrorCode.BANNER_START_DATE_IN_PAST,
+        ErrorCode.POPUP_START_DATE_IN_PAST,
       );
     }
 
     const imageChanged =
       dto.imageUrl !== undefined && dto.imageUrl !== existing.imageUrl;
 
-    const updated = await this.prisma.banner.update({
+    const updated = await this.prisma.popup.update({
       where: { id },
       data: {
+        eyebrow: dto.eyebrow,
         title: dto.title,
-        subtitle: dto.subtitle,
+        description: dto.description,
+        discountCode: dto.discountCode,
         imageUrl: dto.imageUrl === undefined ? undefined : dto.imageUrl,
         imagePublicId:
           dto.imagePublicId === undefined ? undefined : dto.imagePublicId,
-        linkUrl: dto.linkUrl === undefined ? undefined : dto.linkUrl,
         ctaLabel: dto.ctaLabel,
         ctaLinkUrl: dto.ctaLinkUrl,
         sortOrder: dto.sortOrder,
@@ -144,10 +138,7 @@ export class BannersService {
       },
     });
 
-    // Best-effort, chạy SAU khi update DB đã thành công — dọn trước mà update sau đó
-    // lỗi thì ảnh cũ đã bị xóa vĩnh viễn trên Cloudinary trong khi DB vẫn còn trỏ tới
-    // URL đã chết. Lỗi xóa ảnh cũ ở đây không được chặn response thành công — ảnh mồ
-    // côi còn hơn admin tưởng lưu thất bại.
+    // Best-effort, chạy SAU khi update DB đã thành công — xem lý do ở banners.service.ts.
     if (imageChanged && existing.imagePublicId) {
       await this.uploadService
         .deleteImage(existing.imagePublicId)
@@ -159,7 +150,7 @@ export class BannersService {
 
   async remove(id: string): Promise<void> {
     const existing = await this.findExisting(id);
-    await this.prisma.banner.delete({ where: { id } });
+    await this.prisma.popup.delete({ where: { id } });
 
     if (existing.imagePublicId) {
       await this.uploadService
@@ -168,22 +159,22 @@ export class BannersService {
     }
   }
 
-  async reorder(dto: ReorderBannersDto): Promise<void> {
+  async reorder(dto: ReorderPopupsDto): Promise<void> {
     const ids = dto.items.map((item) => item.id);
-    const existing = await this.prisma.banner.findMany({
+    const existing = await this.prisma.popup.findMany({
       where: { id: { in: ids } },
       select: { id: true },
     });
     if (existing.length !== ids.length) {
       throw new BadRequestException({
-        message: 'Có banner không tồn tại trong danh sách sắp xếp',
-        code: ErrorCode.BANNER_REORDER_NOT_FOUND,
+        message: 'Có popup không tồn tại trong danh sách sắp xếp',
+        code: ErrorCode.POPUP_REORDER_NOT_FOUND,
       });
     }
 
     await this.prisma.$transaction(
       dto.items.map((item) =>
-        this.prisma.banner.update({
+        this.prisma.popup.update({
           where: { id: item.id },
           data: { sortOrder: item.sortOrder },
         }),
@@ -191,19 +182,19 @@ export class BannersService {
     );
   }
 
-  private async findExisting(id: string): Promise<Banner> {
-    const banner = await this.prisma.banner.findUnique({ where: { id } });
-    if (!banner) {
+  private async findExisting(id: string): Promise<Popup> {
+    const popup = await this.prisma.popup.findUnique({ where: { id } });
+    if (!popup) {
       throw new NotFoundException({
-        message: 'Không tìm thấy banner',
-        code: ErrorCode.BANNER_NOT_FOUND,
+        message: 'Không tìm thấy popup',
+        code: ErrorCode.POPUP_NOT_FOUND,
       });
     }
-    return banner;
+    return popup;
   }
 
   private async resolveNextSortOrder(): Promise<number> {
-    const last = await this.prisma.banner.findFirst({
+    const last = await this.prisma.popup.findFirst({
       orderBy: { sortOrder: 'desc' },
       select: { sortOrder: true },
     });
@@ -211,12 +202,12 @@ export class BannersService {
   }
 }
 
-function withStatus(banner: Banner): BannerWithStatus {
+function withStatus(popup: Popup): PopupWithStatus {
   return {
-    ...banner,
+    ...popup,
     status: deriveDateRangeStatus(
-      banner.startDate,
-      banner.endDate,
-    ) as BannerStatus,
+      popup.startDate,
+      popup.endDate,
+    ) as PopupStatus,
   };
 }

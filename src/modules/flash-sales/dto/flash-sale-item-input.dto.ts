@@ -6,12 +6,16 @@ export class FlashSaleItemInputDto {
   @IsString()
   productVariantId!: string;
 
-  @ApiProperty({ description: 'Giá bán trong đợt sale — phải nhỏ hơn giá gốc hiện tại' })
+  @ApiProperty({
+    description: 'Giá bán trong đợt sale — phải nhỏ hơn giá gốc hiện tại',
+  })
   @IsNumber()
   @IsPositive()
   salePrice!: number;
 
-  @ApiProperty({ description: 'Số lượng tối đa bán với giá sale — phải <= tồn kho hiện tại' })
+  @ApiProperty({
+    description: 'Số lượng tối đa bán với giá sale — phải <= tồn kho hiện tại',
+  })
   @IsInt()
   @IsPositive()
   quantityLimit!: number;
