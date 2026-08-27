@@ -1,6 +1,7 @@
 import { CollectionsService } from './collections.service';
 import { PrismaService } from '../../config/prisma.service';
 import { CollectionStatus } from './collection-status.enum';
+import { ConflictException } from '@nestjs/common';
 
 function createMocks() {
   const findMany = jest.fn();
@@ -8,6 +9,16 @@ function createMocks() {
     collection: { findMany },
   } as unknown as PrismaService;
   return { prisma, findMany };
+}
+
+function createMocksForCreate() {
+  const findMany = jest.fn();
+  const findFirst = jest.fn();
+  const create = jest.fn();
+  const prisma = {
+    collection: { findMany, findFirst, create },
+  } as unknown as PrismaService;
+  return { prisma, findMany, findFirst, create };
 }
 
 // startDate xa trong quá khứ + endDate xa trong tương lai -> luôn suy ra RUNNING (xem
@@ -93,5 +104,91 @@ describe('CollectionsService.findAll', () => {
       true,
     );
     expect(result.meta.total).toBe(2);
+  });
+});
+
+describe('CollectionsService.create - assertStartDateNotInPast regression', () => {
+  it('startDate ở trong quá khứ -> throw ConflictException với ErrorCode.COLLECTION_START_DATE_IN_PAST', async () => {
+    const { prisma, findFirst, create } = createMocksForCreate();
+    findFirst.mockResolvedValue(null); // không tìm thấy slug tồn tại -> tạo được
+    const service = new CollectionsService(prisma);
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const dto = {
+      name: 'Test Collection',
+      startDate: yesterday.toISOString(),
+      endDate: new Date(
+        new Date().setDate(new Date().getDate() + 30),
+      ).toISOString(),
+    };
+
+    const promise = service.create(dto);
+
+    await expect(promise).rejects.toBeInstanceOf(ConflictException);
+    // Đảm bảo không gọi create() nếu date validation thất bại
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('startDate = hôm nay -> tạo collection thành công (không throw)', async () => {
+    const { prisma, findFirst, create } = createMocksForCreate();
+    findFirst.mockResolvedValue(null); // không tìm thấy slug tồn tại
+
+    const today = new Date().toISOString();
+    const tomorrow = new Date(
+      new Date().setDate(new Date().getDate() + 1),
+    ).toISOString();
+
+    const mockCollection = runningCollection({
+      startDate: new Date(today),
+      endDate: new Date(tomorrow),
+    });
+    create.mockResolvedValue(mockCollection);
+
+    const service = new CollectionsService(prisma);
+    const dto = {
+      name: 'Test Collection',
+      startDate: today,
+      endDate: tomorrow,
+    };
+
+    const result = await service.create(dto);
+
+    expect(result).toBeDefined();
+    expect(result.status).toBe(CollectionStatus.RUNNING);
+    expect(create).toHaveBeenCalled();
+  });
+
+  it('startDate ở trong tương lai -> tạo collection thành công (không throw)', async () => {
+    const { prisma, findFirst, create } = createMocksForCreate();
+    findFirst.mockResolvedValue(null); // không tìm thấy slug tồn tại
+
+    const tomorrow = new Date(
+      new Date().setDate(new Date().getDate() + 1),
+    ).toISOString();
+    const afterTomorrow = new Date(
+      new Date().setDate(new Date().getDate() + 2),
+    ).toISOString();
+
+    const mockCollection = runningCollection({
+      startDate: new Date(tomorrow),
+      endDate: new Date(afterTomorrow),
+    });
+    create.mockResolvedValue(mockCollection);
+
+    const service = new CollectionsService(prisma);
+    const dto = {
+      name: 'Test Collection',
+      startDate: tomorrow,
+      endDate: afterTomorrow,
+    };
+
+    const result = await service.create(dto);
+
+    expect(result).toBeDefined();
+    // Status should be UPCOMING (not RUNNING) since startDate is in the future
+    expect(result.status).toBe(CollectionStatus.UPCOMING);
+    expect(create).toHaveBeenCalled();
   });
 });

@@ -91,6 +91,7 @@ export class InventoryService {
         sku: variant.sku,
         size: variant.size,
         color: variant.color,
+        price: variant.price.toNumber(),
         stockQuantity: variant.stockQuantity,
         lowStockThreshold: threshold,
         productId: variant.product.id,

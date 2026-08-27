@@ -11,6 +11,7 @@ import { OrderErrorCode } from './order';
 import { UploadErrorCode } from './upload';
 import { UserErrorCode } from './user';
 import { VoucherErrorCode } from './voucher';
+import { FlashSaleErrorCode } from './flash-sale';
 
 // Toàn bộ exception BE tự throw tay (BadRequest/Conflict/NotFound/Unauthorized/Forbidden
 // trong service/controller/guard) đều có code riêng — kể cả trường hợp generic ("không tìm
@@ -27,7 +28,7 @@ import { VoucherErrorCode } from './voucher';
 // Common (shared util) 1-99 · Category 1001-1099 · Collection 1101-1199 · Product
 // 1201-1299 · Inventory 1301-1399 · Auth 1401-1499 · Banner 1501-1599 · Brand 1601-1699 ·
 // Location 1701-1799 · Order (cms) 1801-1899 · Upload 1901-1999 · User 2001-2099 ·
-// Voucher 2101-2199
+// Voucher 2101-2199 · Flash Sale 2201-2299
 export const ErrorCode = {
   ...CommonErrorCode,
   ...CategoryErrorCode,
@@ -42,5 +43,6 @@ export const ErrorCode = {
   ...UploadErrorCode,
   ...UserErrorCode,
   ...VoucherErrorCode,
+  ...FlashSaleErrorCode,
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

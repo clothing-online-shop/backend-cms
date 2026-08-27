@@ -19,6 +19,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { BannersModule } from './modules/banners/banners.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { VouchersModule } from './modules/vouchers/vouchers.module';
+import { FlashSalesModule } from './modules/flash-sales/flash-sales.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { VouchersModule } from './modules/vouchers/vouchers.module';
     BannersModule,
     LocationsModule,
     VouchersModule,
+    FlashSalesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

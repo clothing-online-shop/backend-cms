@@ -10,7 +10,8 @@ import { generateSlug } from '../../common/utils/slug.util';
 import {
   deriveDateRangeStatus,
   assertDateRange,
-  toDateOnly,
+  assertStartDateNotInPast,
+  isDateInPast,
 } from '../../common/utils/date.util';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { UpdateCollectionDto } from './dto/update-collection.dto';
@@ -109,7 +110,12 @@ export class CollectionsService {
 
   async create(dto: CreateCollectionDto): Promise<CollectionWithStatus> {
     assertDateRange(dto.startDate, dto.endDate);
-    assertStartDateNotInPast(dto.startDate);
+    assertStartDateNotInPast(
+      dto.startDate,
+      isDateInPast,
+      ErrorCode.COLLECTION_START_DATE_IN_PAST,
+      ConflictException,
+    );
     const slug = await this.resolveUniqueSlug(dto.name);
 
     const collection = await this.prisma.collection.create({
@@ -175,7 +181,12 @@ export class CollectionsService {
     }
 
     if (status === CollectionStatus.UPCOMING && startDateChanged) {
-      assertStartDateNotInPast(dto.startDate!);
+      assertStartDateNotInPast(
+        dto.startDate!,
+        isDateInPast,
+        ErrorCode.COLLECTION_START_DATE_IN_PAST,
+        ConflictException,
+      );
     }
 
     let slug = existing.slug;
@@ -383,15 +394,6 @@ export class CollectionsService {
     }
 
     return candidate;
-  }
-}
-
-function assertStartDateNotInPast(startDate: string): void {
-  if (toDateOnly(new Date(startDate)) < toDateOnly(new Date())) {
-    throw new ConflictException({
-      message: 'Ngày bắt đầu không được ở trong quá khứ.',
-      code: ErrorCode.COLLECTION_START_DATE_IN_PAST,
-    });
   }
 }
 

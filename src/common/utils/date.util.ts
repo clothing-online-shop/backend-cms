@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, type HttpException } from '@nestjs/common';
 import { ErrorCode } from '../constants/error-codes';
 
 // So sánh theo ngày lịch (bỏ qua giờ) — dùng chung giữa nhiều module có khái niệm
@@ -78,4 +78,59 @@ export function toInclusiveStartOfDay(value: string): Date {
       DATE_ONLY_PATTERN.test(value) ? `${value}T00:00:00.000` : value,
     ),
   );
+}
+
+// Dùng chung cho mọi nơi cần chặn chọn ngày bắt đầu trong quá khứ (Collection, Flash Sale...)
+// — so theo NGÀY LỊCH (bỏ qua giờ, cùng cách toDateOnly() đang dùng cho deriveDateRangeStatus)
+// để admin chọn "hôm nay" vẫn hợp lệ dù giờ hiện tại đã qua nửa đêm giờ server. Trả boolean
+// thuần, KHÔNG ném lỗi — mỗi domain tự quyết định ném lỗi gì/mã nào (xem
+// assertStartDateNotInPast() ở collections.service.ts và flash-sales.service.ts).
+export function isDateInPast(date: string): boolean {
+  return toDateOnly(new Date(date)) < toDateOnly(new Date());
+}
+
+// Flash Sale hoạt động ở granularity GIỜ (1 campaign có thể chỉ kéo dài vài giờ trong cùng
+// ngày — khác Collection/Banner luôn là chiến dịch nhiều ngày/tuần), nên KHÔNG dùng
+// deriveDateRangeStatus() (cắt về ngày lịch qua toDateOnly()) — phải so theo TIMESTAMP CHÍNH
+// XÁC bằng new Date(), nếu không: (1) 2 campaign khác giờ cùng ngày sẽ cùng báo RUNNING dù
+// không trùng giờ nhau thật, (2) endNow() (set endDate = new Date()) sẽ không khiến status
+// chuyển sang ENDED cho tới tận nửa đêm UTC. Trả cùng type DateRangeStatus để tái dùng được
+// FLASH_SALE_STATUS_LABEL/COLOR ở FE mà không cần đổi gì.
+export function deriveInstantRangeStatus(
+  startDate: Date,
+  endDate: Date,
+): DateRangeStatus {
+  const now = new Date();
+  if (now < startDate) return 'UPCOMING';
+  if (now > endDate) return 'ENDED';
+  return 'RUNNING';
+}
+
+// Cặp với deriveInstantRangeStatus() — so theo TIMESTAMP CHÍNH XÁC (không cắt về ngày lịch
+// như isDateInPast()), vì Flash Sale cho phép startDate là "hôm nay nhưng giờ cụ thể trong
+// tương lai" (vd tạo lúc 09:00, đợt sale bắt đầu 20:00 cùng ngày) — nếu dùng isDateInPast()
+// (so ngày) thì campaign này sẽ bị coi là RUNNING ngay khi vừa tạo thay vì đúng là UPCOMING.
+export function isInstantInPast(date: string): boolean {
+  return new Date(date).getTime() < Date.now();
+}
+
+// Dùng chung cho Collection/Banner/Flash Sale — trước đây mỗi module tự viết 1 bản
+// `assertStartDateNotInPast()` y hệt nhau (chỉ khác hàm `isInPast` truyền vào và code lỗi).
+// `ExceptionClass` mặc định `BadRequestException` (đúng ngữ nghĩa 400 cho input không hợp
+// lệ), nhận thêm tham số để Collection giữ nguyên `ConflictException` đã dùng từ trước —
+// gộp code trùng lặp nhưng KHÔNG đổi status code đang trả về của module đó.
+export function assertStartDateNotInPast(
+  startDate: string,
+  isInPast: (date: string) => boolean,
+  errorCode: number,
+  ExceptionClass: new (
+    response: Record<string, unknown>,
+  ) => HttpException = BadRequestException,
+): void {
+  if (isInPast(startDate)) {
+    throw new ExceptionClass({
+      message: 'Ngày bắt đầu không được ở trong quá khứ.',
+      code: errorCode,
+    });
+  }
 }

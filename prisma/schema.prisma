@@ -303,6 +303,7 @@ model ProductVariant {
   cartItems      CartItem[]
   orderItems     OrderItem[]
   stockMovements StockMovement[]
+  flashSaleItems FlashSaleItem[]
 
   @@index([productId])
   @@map("product_variants")
@@ -518,6 +519,46 @@ model Banner {
   updatedAt     DateTime @updatedAt
 
   @@map("banners")
+}
+
+model FlashSale {
+  id        String   @id @default(cuid())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  isDelete  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items FlashSaleItem[]
+
+  @@map("flash_sales")
+}
+
+model FlashSaleItem {
+  id               String   @id @default(cuid())
+  flashSaleId      String
+  productVariantId String
+  // Giá bán trong đợt sale — số tiền tuyệt đối, phải nhỏ hơn ProductVariant.price hiện tại
+  // tại thời điểm thêm vào (validate ở service, không phải ràng buộc DB).
+  salePrice        Decimal  @db.Decimal(12, 2)
+  // Số lượng tối đa bán với giá sale — phải <= ProductVariant.stockQuantity hiện tại tại
+  // thời điểm thêm vào (validate ở service).
+  quantityLimit    Int
+  // Số đã bán trong đợt sale — CMS tự chỉnh tay ở giai đoạn này, CHƯA nối với luồng tạo đơn
+  // thật (backend-user, làm sau — xem docs/superpowers/specs/2026-08-24-flash-sale-design.md
+  // mục "Ngoài phạm vi"). isSoldOut suy ra runtime (soldCount >= quantityLimit), không lưu cột.
+  soldCount        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  flashSale      FlashSale      @relation(fields: [flashSaleId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+
+  @@unique([flashSaleId, productVariantId])
+  @@index([flashSaleId])
+  @@index([productVariantId])
+  @@map("flash_sale_items")
 }
 
 model BlogPost {
