@@ -37,23 +37,12 @@ interface ProductSeed {
   basePrice: number;
 }
 
-// Suy ra từ khoá thời trang tiếng Anh theo tên sản phẩm (tiếng Việt) để ảnh seed liên
-// quan tới đúng loại trang phục thay vì ảnh random hoàn toàn không liên quan (núi, xe...).
-function resolveFashionKeyword(name: string): string {
-  const n = name.toLowerCase();
-  if (n.includes('vest') || n.includes('khoác')) return 'jacket,fashion';
-  if (n.includes('sơ mi')) return 'shirt,fashion';
-  if (n.includes('polo')) return 'poloshirt,fashion';
-  if (n.includes('thun')) return 'tshirt,fashion';
-  if (n.includes('len')) return 'sweater,fashion';
-  if (n.includes('kiểu')) return 'blouse,fashion';
-  if (n.includes('jean')) return 'jeans,fashion';
-  if (n.includes('jogger')) return 'joggerpants,fashion';
-  if (n.includes('short')) return 'shorts,fashion';
-  if (n.includes('quần âu')) return 'trousers,fashion';
-  if (n.includes('chân váy')) return 'skirt,fashion';
-  if (n.includes('váy')) return 'dress,fashion';
-  return 'fashion,clothing';
+// picsum.photos/seed/<seed>/<w>/<h> trả cùng 1 ảnh cho cùng 1 seed (ổn định qua nhiều lần
+// chạy seed, khác random hoàn toàn mỗi lần) — thay cho loremflickr.com (hay lỗi/chậm, đã bỏ
+// khỏi toàn bộ codebase). Không hỗ trợ tìm theo từ khoá nội dung (không có ảnh "đúng thời
+// trang") nhưng đổi lại ổn định, không phụ thuộc dịch vụ thứ 3 hay lỗi.
+function picsumUrl(seed: string, width: number, height: number): string {
+  return `https://picsum.photos/seed/${seed}/${width}/${height}`;
 }
 
 async function seedProduct(
@@ -61,12 +50,11 @@ async function seedProduct(
   imageSeed: number,
 ): Promise<void> {
   const slug = generateSlug(seed.name);
-  const keyword = resolveFashionKeyword(seed.name);
-  const thumbnail = `https://loremflickr.com/600/800/${keyword}?lock=${imageSeed}`;
+  const thumbnail = picsumUrl(`${slug}-0`, 600, 800);
   const images = [
     thumbnail,
-    `https://loremflickr.com/600/800/${keyword}?lock=${imageSeed + 1}`,
-    `https://loremflickr.com/600/800/${keyword}?lock=${imageSeed + 2}`,
+    picsumUrl(`${slug}-1`, 600, 800),
+    picsumUrl(`${slug}-2`, 600, 800),
   ];
   // Ảnh seed không phải upload Cloudinary thật nên không có publicId thật — vẫn phải
   // set song song đủ số lượng với `images`, nếu không CMS sẽ báo lỗi lệch mảng khi admin
@@ -228,9 +216,184 @@ async function main() {
     await seedProduct(seed, 100 + index * 3);
   }
 
+  console.log('Seeding banners & popup trang chủ...');
+  await seedHomepageContent();
+
+  console.log('Seeding Flash Sale demo...');
+  await seedFlashSale();
+
+  console.log('Seeding bài viết (blog)...');
+  await seedBlogPosts();
+
   console.log(
-    `Đã seed xong: ${CMS_ACCOUNTS.length} tài khoản CMS, 6 danh mục, ${productSeeds.length} sản phẩm.`,
+    `Đã seed xong: ${CMS_ACCOUNTS.length} tài khoản CMS, 6 danh mục, ${productSeeds.length} sản phẩm, banner & popup trang chủ, Flash Sale demo, bài viết.`,
   );
+}
+
+const BLOG_POST_SEEDS: { id: string; title: string; imageSeed: number }[] = [
+  {
+    id: 'seed-blog-1',
+    title: 'Ba cách mặc sơ mi linen qua mùa chuyển gió',
+    imageSeed: 920,
+  },
+  {
+    id: 'seed-blog-2',
+    title: 'Chọn size theo số đo, không theo cảm giác',
+    imageSeed: 921,
+  },
+  {
+    id: 'seed-blog-3',
+    title: 'Bảo quản vải lụa pha để giữ đồ rũ',
+    imageSeed: 922,
+  },
+];
+
+async function seedBlogPosts(): Promise<void> {
+  // Trang chủ sắp xếp bài viết theo createdAt desc — set createdAt lệch nhau vài giây theo
+  // đúng thứ tự mảng ở trên (thay vì để mặc định @default(now()), dễ đảo thứ tự hiển thị nếu
+  // seed chạy quá nhanh khiến nhiều bản ghi cùng 1 mốc thời gian).
+  for (const [index, post] of BLOG_POST_SEEDS.entries()) {
+    const createdAt = new Date(Date.now() - index * 1000);
+    await prisma.blogPost.upsert({
+      where: { id: post.id },
+      update: {},
+      create: {
+        id: post.id,
+        title: post.title,
+        slug: generateSlug(post.title),
+        content: `<p>${post.title}</p>`,
+        coverImage: picsumUrl(`blog-${post.imageSeed}`, 800, 600),
+        coverImagePublicId: `seed-placeholder/${post.imageSeed}`,
+        isPublished: true,
+        createdAt,
+      },
+    });
+  }
+}
+
+// Idempotent theo tên — chạy lại seed nhiều lần không tạo thêm đợt Flash Sale trùng. Không
+// dùng id cố định như Banner/Popup vì FlashSaleItem tham chiếu productVariantId có thể đổi
+// giữa các lần seed lại catalog, nên để Prisma tự sinh id mới mỗi lần seed đợt này từ đầu.
+async function seedFlashSale(): Promise<void> {
+  const existing = await prisma.flashSale.findFirst({
+    where: { name: 'Flash Sale Demo', isDelete: false },
+  });
+  if (existing) return;
+
+  // Lấy 1 biến thể còn hàng của mỗi sản phẩm khác nhau (distinct theo productId) để mỗi thẻ
+  // trên trang chủ ứng với 1 sản phẩm — tránh 2 item cùng productId đẩy vào cùng seedFlashSale.
+  const variants = await prisma.productVariant.findMany({
+    where: { stockQuantity: { gt: 0 } },
+    orderBy: { id: 'asc' },
+    distinct: ['productId'],
+    take: 6,
+  });
+  if (variants.length === 0) return;
+
+  await prisma.flashSale.create({
+    data: {
+      name: 'Flash Sale Demo',
+      startDate: new Date(Date.now() - 60 * 60 * 1000),
+      endDate: new Date(Date.now() + 6 * 60 * 60 * 1000),
+      items: {
+        create: variants.map((variant) => {
+          const price = variant.price.toNumber();
+          const salePrice = Math.round((price * 0.6) / 1000) * 1000;
+          const quantityLimit = Math.min(variant.stockQuantity, randomInt(10, 30));
+          return {
+            productVariantId: variant.id,
+            salePrice,
+            quantityLimit,
+            soldCount: randomInt(0, quantityLimit),
+          };
+        }),
+      },
+    },
+  });
+}
+
+// id cố định (thay vì cuid tự sinh) để seed chạy lại nhiều lần vẫn upsert đúng vào cùng
+// 1 bản ghi thay vì tạo trùng — Banner/Popup không có field nào khác unique để upsert theo.
+const HOME_BANNER_SEEDS: {
+  id: string;
+  title: string;
+  subtitle: string;
+  ctaLabel: string;
+  ctaLinkUrl: string;
+  imageSeed: number;
+}[] = [
+  {
+    id: 'seed-banner-1',
+    title: 'Trạm Hè Đa Sắc — Together Station',
+    subtitle: 'Bộ sưu tập Thu 2026 — lớp vải nhẹ cho ngày trở gió',
+    ctaLabel: 'Xem thêm',
+    ctaLinkUrl: '/san-pham',
+    imageSeed: 901,
+  },
+  {
+    id: 'seed-banner-2',
+    title: 'Back To School',
+    subtitle: '42 mẫu mới, đủ size S–XL',
+    ctaLabel: 'Xem thêm',
+    ctaLinkUrl: '/san-pham',
+    imageSeed: 902,
+  },
+  {
+    id: 'seed-banner-3',
+    title: 'Happy Week',
+    subtitle: 'Ưu đãi tới 50% toàn bộ sản phẩm',
+    ctaLabel: 'Xem thêm',
+    ctaLinkUrl: '/san-pham',
+    imageSeed: 903,
+  },
+];
+
+async function seedHomepageContent(): Promise<void> {
+  // Khoảng ngày trượt theo thời điểm chạy seed (không hardcode) — luôn RUNNING dù seed
+  // chạy vào lúc nào.
+  const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  for (const [index, banner] of HOME_BANNER_SEEDS.entries()) {
+    const imageUrl = picsumUrl(`banner-${banner.imageSeed}`, 1600, 900);
+    const imagePublicId = `seed-placeholder/${banner.imageSeed}`;
+    await prisma.banner.upsert({
+      where: { id: banner.id },
+      update: {},
+      create: {
+        id: banner.id,
+        title: banner.title,
+        subtitle: banner.subtitle,
+        imageUrl,
+        imagePublicId,
+        linkUrl: '/san-pham',
+        ctaLabel: banner.ctaLabel,
+        ctaLinkUrl: banner.ctaLinkUrl,
+        sortOrder: index,
+        startDate,
+        endDate,
+      },
+    });
+  }
+
+  await prisma.popup.upsert({
+    where: { id: 'seed-popup-1' },
+    update: {},
+    create: {
+      id: 'seed-popup-1',
+      eyebrow: 'ƯU ĐÃI THÁNG 8',
+      title: 'Giảm 15% đơn từ 800.000đ',
+      description: 'Nhập mã THU26 ở bước thanh toán, hạn dùng đến 31.08.2026.',
+      discountCode: 'THU26',
+      imageUrl: picsumUrl('popup-910', 900, 1100),
+      imagePublicId: 'seed-placeholder/910',
+      ctaLabel: 'Mua sắm ngay',
+      ctaLinkUrl: '/san-pham',
+      sortOrder: 0,
+      startDate,
+      endDate,
+    },
+  });
 }
 
 main()

@@ -508,9 +508,12 @@ model Review {
 model Banner {
   id            String   @id @default(cuid())
   title         String
+  subtitle      String?
   imageUrl      String
   imagePublicId String?
   linkUrl       String?
+  ctaLabel      String?
+  ctaLinkUrl    String?
   isActive      Boolean  @default(true)
   sortOrder     Int      @default(0)
   startDate     DateTime
@@ -519,6 +522,26 @@ model Banner {
   updatedAt     DateTime @updatedAt
 
   @@map("banners")
+}
+
+model Popup {
+  id            String   @id @default(cuid())
+  eyebrow       String?
+  title         String
+  description   String?
+  discountCode  String?
+  imageUrl      String
+  imagePublicId String?
+  ctaLabel      String
+  ctaLinkUrl    String
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  startDate     DateTime
+  endDate       DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("popups")
 }
 
 model FlashSale {
@@ -562,14 +585,15 @@ model FlashSaleItem {
 }
 
 model BlogPost {
-  id          String   @id @default(cuid())
-  title       String
-  slug        String   @unique
-  content     String
-  coverImage  String?
-  isPublished Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  title              String
+  slug               String   @unique
+  content            String
+  coverImage         String?
+  coverImagePublicId String?
+  isPublished        Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@map("blog_posts")
 }

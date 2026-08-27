@@ -8,7 +8,9 @@ import type { DateRangeStatus } from '../../../common/utils/date.util';
 const DATE_RANGE_STATUSES = ['UPCOMING', 'RUNNING', 'ENDED'] as const;
 
 export class ListFlashSalesQueryDto {
-  @ApiPropertyOptional({ description: 'Tìm theo tên (contains, không phân biệt hoa thường)' })
+  @ApiPropertyOptional({
+    description: 'Tìm theo tên (contains, không phân biệt hoa thường)',
+  })
   @IsOptional()
   @IsString()
   search?: string;
