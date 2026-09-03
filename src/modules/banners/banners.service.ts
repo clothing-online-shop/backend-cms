@@ -84,8 +84,9 @@ export class BannersService {
 
     const banner = await this.prisma.banner.create({
       data: {
+        eyebrow: dto.eyebrow,
         title: dto.title,
-        subtitle: dto.subtitle,
+        description: dto.description,
         imageUrl: dto.imageUrl,
         imagePublicId: dto.imagePublicId,
         linkUrl: dto.linkUrl,
@@ -130,8 +131,9 @@ export class BannersService {
     const updated = await this.prisma.banner.update({
       where: { id },
       data: {
+        eyebrow: dto.eyebrow,
         title: dto.title,
-        subtitle: dto.subtitle,
+        description: dto.description,
         imageUrl: dto.imageUrl === undefined ? undefined : dto.imageUrl,
         imagePublicId:
           dto.imagePublicId === undefined ? undefined : dto.imagePublicId,

@@ -9,6 +9,11 @@ import {
 } from 'class-validator';
 
 export class CreateBannerDto {
+  @ApiPropertyOptional({ example: 'BỘ SƯU TẬP THU 2026' })
+  @IsOptional()
+  @IsString()
+  eyebrow?: string;
+
   @ApiProperty({ example: 'Sale mùa hè 2026' })
   @IsString()
   @MinLength(1)
@@ -17,7 +22,7 @@ export class CreateBannerDto {
   @ApiPropertyOptional({ example: 'Ưu đãi tới 50% cho bộ sưu tập mới' })
   @IsOptional()
   @IsString()
-  subtitle?: string;
+  description?: string;
 
   @ApiProperty({ description: 'URL ảnh, upload qua /upload/image' })
   @IsString()
