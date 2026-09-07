@@ -1,0 +1,5 @@
+export const PromoBarErrorCode = {
+  PROMO_BAR_REORDER_NOT_FOUND: 2501,
+  PROMO_BAR_NOT_FOUND: 2502,
+  PROMO_BAR_START_DATE_IN_PAST: 2503,
+} as const;
