@@ -11,6 +11,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { BrandsModule } from './modules/brands/brands.module';
+import { ColorsModule } from './modules/colors/colors.module';
 import { CollectionsModule } from './modules/collections/collections.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrdersModule } from './modules/orders/orders.module';
@@ -43,6 +44,7 @@ import { FlashSalesModule } from './modules/flash-sales/flash-sales.module';
     ProductsModule,
     CategoriesModule,
     BrandsModule,
+    ColorsModule,
     CollectionsModule,
     InventoryModule,
     OrdersModule,

@@ -13,4 +13,5 @@ export const ProductErrorCode = {
   // service, không phải ở đây.
   PRODUCT_COLLECTION_ENDED: 1212,
   PRODUCT_FEATURED_BLOCKED_NOT_ACTIVE: 1213,
+  PRODUCT_VARIANT_COLOR_INVALID: 1214,
 } as const;

@@ -6,6 +6,10 @@ import { ProductStatus } from '../src/modules/products/product-status.enum';
 const prisma = new PrismaClient();
 
 const SIZES = ['S', 'M', 'L', 'XL'];
+// Phải là tên đã có sẵn trong bảng colors (product_variants.color giờ là FK trỏ colors.name,
+// xem schema.prisma + migration 20260908145301_add_color_table) — đổi/thêm màu ở đây thì
+// phải thêm màu đó vào bảng colors trước (qua POST /colors hoặc thêm migration), nếu không
+// prisma.product.upsert() bên dưới sẽ ném lỗi FK.
 const COLORS = ['Đen', 'Trắng', 'Xanh'];
 
 function randomInt(min: number, max: number): number {

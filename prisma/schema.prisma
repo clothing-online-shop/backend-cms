@@ -256,6 +256,18 @@ model Brand {
   @@map("brands")
 }
 
+model Color {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  hexCode   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variants ProductVariant[]
+
+  @@map("colors")
+}
+
 model Collection {
   id             String   @id @default(cuid())
   name           String
@@ -301,6 +313,13 @@ model ProductVariant {
   imageUrl      String?
 
   product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Tham chiếu theo tên (không phải id) — cột `color` vẫn giữ nguyên là chuỗi tên màu hiển
+  // thị, mọi query lọc theo color: { in: [...] } ở products.service.ts (cả backend-cms lẫn
+  // backend-user) không cần đổi gì. FK này chỉ thêm ràng buộc "phải là tên đã có trong bảng
+  // colors" (chặn free-text tuỳ tiện) + cho join lấy hexCode khi cần. Restrict: không cho
+  // xoá 1 màu đang có biến thể nào dùng. Cascade update: đổi tên màu ở bảng colors thì mọi
+  // product_variants.color đang trỏ tới tự cập nhật theo, không mồ côi dữ liệu.
+  colorRef       Color           @relation(fields: [color], references: [name], onDelete: Restrict, onUpdate: Cascade)
   cartItems      CartItem[]
   orderItems     OrderItem[]
   stockMovements StockMovement[]

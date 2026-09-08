@@ -1,0 +1,5 @@
+export const ColorErrorCode = {
+  COLOR_NOT_FOUND: 2601,
+  COLOR_NAME_ALREADY_EXISTS: 2602,
+  COLOR_DELETE_BLOCKED_HAS_VARIANTS: 2603,
+} as const;
