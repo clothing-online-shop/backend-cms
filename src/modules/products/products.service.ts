@@ -283,6 +283,7 @@ export class ProductsService {
   ): Promise<Product & { variants: ProductVariant[] }> {
     assertNoDuplicateVariants(dto.variants);
     await this.assertCategoryExists(dto.categoryId);
+    await this.assertColorsExist(dto.variants.map((v) => v.color));
     this.assertValidSalePrice(dto.salePrice, dto.basePrice);
     assertImagesPublicIdsAligned(dto.images, dto.imagePublicIds);
     // @IsOptional() ở DTO bỏ qua validate khi client gửi null (không chỉ undefined) — coi
@@ -308,7 +309,12 @@ export class ProductsService {
 
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.name);
     const usedSkus = new Set<string>();
-    const variantsData: Prisma.ProductVariantCreateWithoutProductInput[] = [];
+    // Unchecked (không phải Checked) — color giờ là FK trỏ colors.name (xem schema.prisma),
+    // Prisma chỉ cho set thẳng scalar `color` ở biến thể "Unchecked", còn variant Checked bắt
+    // set qua nested `colorRef: { connect: { name } }`. assertColorsExist() ở trên đã validate
+    // toàn bộ color hợp lệ trước khi tới đây, không cần connect qua colorRef cho rườm rà.
+    const variantsData: Prisma.ProductVariantUncheckedCreateWithoutProductInput[] =
+      [];
     for (const variant of dto.variants) {
       const sku = await this.resolveUniqueSku(
         this.prisma,
@@ -418,6 +424,7 @@ export class ProductsService {
 
     if (dto.variants) {
       assertNoDuplicateVariants(dto.variants);
+      await this.assertColorsExist(dto.variants.map((v) => v.color));
     }
 
     const basePrice = dto.basePrice ?? existing.basePrice.toNumber();
@@ -844,6 +851,27 @@ export class ProductsService {
       throw new BadRequestException({
         message: 'Danh mục không tồn tại',
         code: ErrorCode.PRODUCT_CATEGORY_NOT_FOUND,
+      });
+    }
+  }
+
+  // product_variants.color giờ là FK trỏ tới colors.name (xem schema.prisma) — validate
+  // trước khi ghi để trả lỗi rõ ràng (400 kèm danh sách tên màu sai) thay vì để Prisma ném
+  // P2003 thô khi transaction insert/update variant chạm FK. Không dùng try/catch bắt P2003
+  // ở đây vì error message dạng đó không liệt kê được CHÍNH XÁC tên nào sai, phải query
+  // trước như thế này mới gom được danh sách.
+  private async assertColorsExist(colors: string[]): Promise<void> {
+    const uniqueColors = [...new Set(colors)];
+    const found = await this.prisma.color.findMany({
+      where: { name: { in: uniqueColors } },
+      select: { name: true },
+    });
+    const foundNames = new Set(found.map((c) => c.name));
+    const missing = uniqueColors.filter((c) => !foundNames.has(c));
+    if (missing.length > 0) {
+      throw new BadRequestException({
+        message: `Màu không hợp lệ: ${missing.join(', ')}. Vui lòng chọn từ danh sách màu đã có (GET /colors) hoặc tạo màu mới trước khi gán cho biến thể.`,
+        code: ErrorCode.PRODUCT_VARIANT_COLOR_INVALID,
       });
     }
   }

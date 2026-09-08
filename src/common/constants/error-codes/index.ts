@@ -15,6 +15,7 @@ import { FlashSaleErrorCode } from './flash-sale';
 import { PopupErrorCode } from './popup';
 import { CmsErrorCode } from './cms';
 import { PromoBarErrorCode } from './promo-bar';
+import { ColorErrorCode } from './color';
 
 // Toàn bộ exception BE tự throw tay (BadRequest/Conflict/NotFound/Unauthorized/Forbidden
 // trong service/controller/guard) đều có code riêng — kể cả trường hợp generic ("không tìm
@@ -32,7 +33,7 @@ import { PromoBarErrorCode } from './promo-bar';
 // 1201-1299 · Inventory 1301-1399 · Auth 1401-1499 · Banner 1501-1599 · Brand 1601-1699 ·
 // Location 1701-1799 · Order (cms) 1801-1899 · Upload 1901-1999 · User 2001-2099 ·
 // Voucher 2101-2199 · Flash Sale 2201-2299 · Popup 2301-2399 · Cms 2401-2499 · PromoBar
-// 2501-2599
+// 2501-2599 · Color 2601-2699
 export const ErrorCode = {
   ...CommonErrorCode,
   ...CategoryErrorCode,
@@ -51,5 +52,6 @@ export const ErrorCode = {
   ...PopupErrorCode,
   ...CmsErrorCode,
   ...PromoBarErrorCode,
+  ...ColorErrorCode,
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
