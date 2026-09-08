@@ -546,6 +546,25 @@ model Banner {
   @@map("banners")
 }
 
+// Thanh khuyến mãi trên header, hiển thị mọi trang (khác Banner — carousel chỉ ở trang
+// chủ) — chỉ 1 bản active tại 1 thời điểm, giống cách Popup hoạt động. startDate/endDate
+// vừa là cửa sổ RUNNING/UPCOMING/ENDED vừa là nguồn format ra khoảng ngày hiển thị
+// ("11/08 – 23/08"), không cần field text riêng.
+model PromoBar {
+  id        String   @id @default(cuid())
+  label     String
+  highlight String
+  linkUrl   String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  startDate DateTime
+  endDate   DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("promo_bars")
+}
+
 model Popup {
   id            String   @id @default(cuid())
   eyebrow       String?

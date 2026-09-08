@@ -317,7 +317,7 @@ async function seedFlashSale(): Promise<void> {
 const HOME_BANNER_SEEDS: {
   id: string;
   title: string;
-  subtitle: string;
+  description: string;
   ctaLabel: string;
   ctaLinkUrl: string;
   imageSeed: number;
@@ -325,7 +325,7 @@ const HOME_BANNER_SEEDS: {
   {
     id: 'seed-banner-1',
     title: 'Trạm Hè Đa Sắc — Together Station',
-    subtitle: 'Bộ sưu tập Thu 2026 — lớp vải nhẹ cho ngày trở gió',
+    description: 'Bộ sưu tập Thu 2026 — lớp vải nhẹ cho ngày trở gió',
     ctaLabel: 'Xem thêm',
     ctaLinkUrl: '/san-pham',
     imageSeed: 901,
@@ -333,7 +333,7 @@ const HOME_BANNER_SEEDS: {
   {
     id: 'seed-banner-2',
     title: 'Back To School',
-    subtitle: '42 mẫu mới, đủ size S–XL',
+    description: '42 mẫu mới, đủ size S–XL',
     ctaLabel: 'Xem thêm',
     ctaLinkUrl: '/san-pham',
     imageSeed: 902,
@@ -341,7 +341,7 @@ const HOME_BANNER_SEEDS: {
   {
     id: 'seed-banner-3',
     title: 'Happy Week',
-    subtitle: 'Ưu đãi tới 50% toàn bộ sản phẩm',
+    description: 'Ưu đãi tới 50% toàn bộ sản phẩm',
     ctaLabel: 'Xem thêm',
     ctaLinkUrl: '/san-pham',
     imageSeed: 903,
@@ -363,7 +363,7 @@ async function seedHomepageContent(): Promise<void> {
       create: {
         id: banner.id,
         title: banner.title,
-        subtitle: banner.subtitle,
+        description: banner.description,
         imageUrl,
         imagePublicId,
         linkUrl: '/san-pham',
@@ -389,6 +389,20 @@ async function seedHomepageContent(): Promise<void> {
       imagePublicId: 'seed-placeholder/910',
       ctaLabel: 'Mua sắm ngay',
       ctaLinkUrl: '/san-pham',
+      sortOrder: 0,
+      startDate,
+      endDate,
+    },
+  });
+
+  await prisma.promoBar.upsert({
+    where: { id: 'seed-promo-bar-1' },
+    update: {},
+    create: {
+      id: 'seed-promo-bar-1',
+      label: 'Thu 2026',
+      highlight: 'Giảm 30 – 50%',
+      linkUrl: '/san-pham',
       sortOrder: 0,
       startDate,
       endDate,

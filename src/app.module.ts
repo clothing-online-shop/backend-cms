@@ -18,6 +18,7 @@ import { CmsModule } from './modules/cms/cms.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { BannersModule } from './modules/banners/banners.module';
 import { PopupsModule } from './modules/popups/popups.module';
+import { PromoBarsModule } from './modules/promo-bars/promo-bars.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { VouchersModule } from './modules/vouchers/vouchers.module';
 import { FlashSalesModule } from './modules/flash-sales/flash-sales.module';
@@ -49,6 +50,7 @@ import { FlashSalesModule } from './modules/flash-sales/flash-sales.module';
     UploadModule,
     BannersModule,
     PopupsModule,
+    PromoBarsModule,
     LocationsModule,
     VouchersModule,
     FlashSalesModule,
