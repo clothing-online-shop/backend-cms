@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "products" ADD COLUMN     "fakeRatingAverage" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "fakeReviewCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "fakeSoldCount" INTEGER NOT NULL DEFAULT 0;

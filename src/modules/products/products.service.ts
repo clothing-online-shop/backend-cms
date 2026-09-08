@@ -356,6 +356,9 @@ export class ProductsService {
           metaTitle: dto.metaTitle,
           metaDescription: dto.metaDescription,
           isFeatured: isFeatured ?? false,
+          fakeSoldCount: dto.fakeSoldCount ?? 0,
+          fakeReviewCount: dto.fakeReviewCount ?? 0,
+          fakeRatingAverage: dto.fakeRatingAverage ?? 0,
           variants: { create: variantsData },
           collections: collectionIds?.length
             ? {
@@ -485,6 +488,9 @@ export class ProductsService {
           metaTitle: dto.metaTitle,
           metaDescription: dto.metaDescription,
           isFeatured: nextIsFeatured,
+          fakeSoldCount: dto.fakeSoldCount,
+          fakeReviewCount: dto.fakeReviewCount,
+          fakeRatingAverage: dto.fakeRatingAverage,
         },
       });
       if (count === 0) {
@@ -1053,6 +1059,9 @@ function toListItem(product: ProductWithStockVariants) {
     categoryId: product.categoryId,
     isDelete: product.isDelete,
     isFeatured: product.isFeatured,
+    fakeSoldCount: product.fakeSoldCount,
+    fakeReviewCount: product.fakeReviewCount,
+    fakeRatingAverage: product.fakeRatingAverage,
     totalStock: product.variants.reduce((sum, v) => sum + v.stockQuantity, 0),
     collections: (product.collections ?? []).map((cp) => ({
       id: cp.collection.id,

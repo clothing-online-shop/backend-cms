@@ -5,9 +5,13 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsInt,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
+  Max,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -119,6 +123,42 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProductVariantDto)
   variants!: CreateProductVariantDto[];
+
+  // 3 field "mồi" số liệu hiển thị (đã bán/đánh giá) cho sản phẩm mới chưa có đơn/đánh giá
+  // thật — backend-user cộng dồn với số liệu thật khi trả về công khai (xem findBySlug() +
+  // buildDisplayRating() ở products.service.ts, backend-user). Không ảnh hưởng danh sách
+  // đánh giá thật hay breakdown theo sao (không có nội dung review ảo).
+  @ApiPropertyOptional({
+    default: 0,
+    description:
+      'Số lượt "đã bán" ảo, cộng dồn với đơn hàng COMPLETED thật khi hiển thị',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  fakeSoldCount?: number;
+
+  @ApiPropertyOptional({
+    default: 0,
+    description:
+      'Số lượt đánh giá ảo, cộng dồn với đánh giá thật khi hiển thị (không tạo review thật kèm nội dung)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  fakeReviewCount?: number;
+
+  @ApiPropertyOptional({
+    default: 0,
+    example: 4.8,
+    description:
+      'Điểm trung bình ảo (0-5) — chỉ có ý nghĩa khi fakeReviewCount > 0',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  fakeRatingAverage?: number;
 
   @ApiPropertyOptional({
     type: [String],

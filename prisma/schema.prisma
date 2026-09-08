@@ -225,6 +225,14 @@ model Product {
   metaDescription   String?
   isDelete          Boolean  @default(false)
   isFeatured        Boolean  @default(false)
+  // 3 field admin tự nhập để "mồi" số liệu hiển thị cho sản phẩm mới chưa có đơn/đánh giá
+  // thật (0 đơn/0 đánh giá nhìn kém tin cậy) — backend-user cộng dồn với số liệu thật
+  // (OrderItem COMPLETED, Review) khi trả về cho FE, không ghi đè hẳn. Không ảnh hưởng
+  // reviewSummary.breakdown hay danh sách review thật (không có review ảo kèm nội dung),
+  // chỉ cộng vào con số tổng quan hiển thị cạnh tên sản phẩm (ProductRatingRow).
+  fakeSoldCount     Int      @default(0)
+  fakeReviewCount   Int      @default(0)
+  fakeRatingAverage Float    @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
