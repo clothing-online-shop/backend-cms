@@ -100,6 +100,7 @@ model User {
   auditLogs          AuditLog[]
   wishlistItems      WishlistItem[]
   recentlyViewed     RecentlyViewed[]
+  searchHistory      SearchHistory[]
   orderStatusChanges OrderStatusHistory[]
   voucherRedemptions VoucherRedemption[]
 
@@ -393,6 +394,26 @@ model RecentlyViewed {
   @@index([userId])
   @@index([guestId])
   @@map("recently_viewed")
+}
+
+// Lịch sử từ khoá tìm kiếm — cùng kiểu định danh userId/guestId như RecentlyViewed ở trên
+// (đăng nhập thì theo userId, khách vãng lai theo guestId qua header X-Guest-Id). Tìm lại
+// đúng từ khoá cũ thì upsert cập nhật searchedAt (đẩy lên đầu danh sách) thay vì tạo dòng
+// mới — không thì gõ đi gõ lại 1 từ khoá sẽ chiếm hết chỗ trong "N từ khoá gần nhất".
+model SearchHistory {
+  id         String   @id @default(cuid())
+  userId     String?
+  guestId    String?
+  keyword    String
+  searchedAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, keyword])
+  @@unique([guestId, keyword])
+  @@index([userId])
+  @@index([guestId])
+  @@map("search_history")
 }
 
 model Order {
