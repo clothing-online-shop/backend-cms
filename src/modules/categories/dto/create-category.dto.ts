@@ -52,4 +52,50 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsInt()
   sortOrder?: number;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Hiện danh mục này trong mục "Hàng mới về" ở mega menu của danh mục gốc chứa nó (chỉ có tác dụng với danh mục cấp 2/3)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  showInNewArrivals?: boolean;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Hiện danh mục này trong mục "Sale corner" ở mega menu của danh mục gốc chứa nó (chỉ có tác dụng với danh mục cấp 2/3)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  showInSaleCorner?: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Ảnh "look" bên trái mega menu — chỉ có tác dụng với danh mục gốc (không có cha)',
+  })
+  @IsOptional()
+  @IsUrl()
+  megaMenuLeftImageUrl?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  megaMenuLeftImagePublicId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Ảnh "look" bên phải mega menu — chỉ có tác dụng với danh mục gốc (không có cha)',
+  })
+  @IsOptional()
+  @IsUrl()
+  megaMenuRightImageUrl?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  megaMenuRightImagePublicId?: string | null;
 }

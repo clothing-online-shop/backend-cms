@@ -199,6 +199,21 @@ model Category {
   parent        Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
   children      Category[] @relation("CategoryToCategory")
   products      Product[]
+  // Đánh dấu danh mục này có xuất hiện trong mục "Hàng mới về"/"Sale corner" ở mega menu của
+  // danh mục gốc chứa nó không (xem MegaMenu.tsx ở frontend-website) — chỉ có ý nghĩa với
+  // danh mục cấp 2/3 (không phải danh mục gốc). Tận dụng thẳng cây danh mục thật thay vì tạo
+  // bảng "khuyến mãi" riêng với title/link tự bịa — mục hiển thị luôn trỏ đúng trang danh mục
+  // thật, có sản phẩm thật.
+  showInNewArrivals Boolean @default(false)
+  showInSaleCorner  Boolean @default(false)
+  // 2 ảnh "look" bookend 2 đầu mega menu — chỉ có ý nghĩa với danh mục GỐC (parentId null) đã
+  // đủ taxonomy chi tiết để hiện mega menu nhiều cột (isRich, xem MegaMenu.tsx). Chỉ để xem,
+  // không điều hướng (không có field link) — cũng không có field caption vì thiết kế không
+  // hiện chữ trên ảnh.
+  megaMenuLeftImageUrl       String?
+  megaMenuLeftImagePublicId  String?
+  megaMenuRightImageUrl      String?
+  megaMenuRightImagePublicId String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -733,3 +748,4 @@ model PaymentTransaction {
   @@index([orderId])
   @@map("payment_transactions")
 }
+
