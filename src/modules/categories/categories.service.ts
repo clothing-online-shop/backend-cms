@@ -67,6 +67,22 @@ export class CategoriesService {
 
   async create(dto: CreateCategoryDto): Promise<Category> {
     assertImagePublicIdAligned(dto.image, dto.imagePublicId);
+    assertImagePublicIdAligned(
+      dto.megaMenuLeftImageUrl,
+      dto.megaMenuLeftImagePublicId,
+      {
+        image: 'megaMenuLeftImageUrl',
+        imagePublicId: 'megaMenuLeftImagePublicId',
+      },
+    );
+    assertImagePublicIdAligned(
+      dto.megaMenuRightImageUrl,
+      dto.megaMenuRightImagePublicId,
+      {
+        image: 'megaMenuRightImageUrl',
+        imagePublicId: 'megaMenuRightImagePublicId',
+      },
+    );
     if (dto.parentId) {
       await this.assertCategoryExists(dto.parentId);
     }
@@ -84,12 +100,34 @@ export class CategoriesService {
         imagePublicId: dto.imagePublicId ?? null,
         isActive: dto.isActive ?? true,
         sortOrder: dto.sortOrder ?? 0,
+        showInNewArrivals: dto.showInNewArrivals ?? false,
+        showInSaleCorner: dto.showInSaleCorner ?? false,
+        megaMenuLeftImageUrl: dto.megaMenuLeftImageUrl ?? null,
+        megaMenuLeftImagePublicId: dto.megaMenuLeftImagePublicId ?? null,
+        megaMenuRightImageUrl: dto.megaMenuRightImageUrl ?? null,
+        megaMenuRightImagePublicId: dto.megaMenuRightImagePublicId ?? null,
       },
     });
   }
 
   async update(id: string, dto: UpdateCategoryDto): Promise<Category> {
     assertImagePublicIdAligned(dto.image, dto.imagePublicId);
+    assertImagePublicIdAligned(
+      dto.megaMenuLeftImageUrl,
+      dto.megaMenuLeftImagePublicId,
+      {
+        image: 'megaMenuLeftImageUrl',
+        imagePublicId: 'megaMenuLeftImagePublicId',
+      },
+    );
+    assertImagePublicIdAligned(
+      dto.megaMenuRightImageUrl,
+      dto.megaMenuRightImagePublicId,
+      {
+        image: 'megaMenuRightImageUrl',
+        imagePublicId: 'megaMenuRightImagePublicId',
+      },
+    );
     const existing = await this.assertCategoryExists(id);
 
     let slug = existing.slug;
@@ -127,6 +165,12 @@ export class CategoriesService {
 
     const imageChanged =
       dto.image !== undefined && dto.image !== existing.image;
+    const leftImageChanged =
+      dto.megaMenuLeftImageUrl !== undefined &&
+      dto.megaMenuLeftImageUrl !== existing.megaMenuLeftImageUrl;
+    const rightImageChanged =
+      dto.megaMenuRightImageUrl !== undefined &&
+      dto.megaMenuRightImageUrl !== existing.megaMenuRightImageUrl;
 
     // updateMany (không phải update) + check isDelete:false ngay trong where — chặn race
     // giữa lúc assertCategoryExists() đọc dữ liệu ở trên và lúc ghi ở đây: nếu danh mục bị
@@ -143,6 +187,24 @@ export class CategoriesService {
           dto.imagePublicId === undefined ? undefined : dto.imagePublicId,
         isActive: dto.isActive,
         sortOrder: dto.sortOrder,
+        showInNewArrivals: dto.showInNewArrivals,
+        showInSaleCorner: dto.showInSaleCorner,
+        megaMenuLeftImageUrl:
+          dto.megaMenuLeftImageUrl === undefined
+            ? undefined
+            : dto.megaMenuLeftImageUrl,
+        megaMenuLeftImagePublicId:
+          dto.megaMenuLeftImagePublicId === undefined
+            ? undefined
+            : dto.megaMenuLeftImagePublicId,
+        megaMenuRightImageUrl:
+          dto.megaMenuRightImageUrl === undefined
+            ? undefined
+            : dto.megaMenuRightImageUrl,
+        megaMenuRightImagePublicId:
+          dto.megaMenuRightImagePublicId === undefined
+            ? undefined
+            : dto.megaMenuRightImagePublicId,
       },
     });
     if (count === 0) {
@@ -162,6 +224,16 @@ export class CategoriesService {
     if (imageChanged && existing.imagePublicId) {
       await this.uploadService
         .deleteImage(existing.imagePublicId)
+        .catch(() => undefined);
+    }
+    if (leftImageChanged && existing.megaMenuLeftImagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.megaMenuLeftImagePublicId)
+        .catch(() => undefined);
+    }
+    if (rightImageChanged && existing.megaMenuRightImagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.megaMenuRightImagePublicId)
         .catch(() => undefined);
     }
 
@@ -204,6 +276,16 @@ export class CategoriesService {
     if (existing.imagePublicId) {
       await this.uploadService
         .deleteImage(existing.imagePublicId)
+        .catch(() => undefined);
+    }
+    if (existing.megaMenuLeftImagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.megaMenuLeftImagePublicId)
+        .catch(() => undefined);
+    }
+    if (existing.megaMenuRightImagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.megaMenuRightImagePublicId)
         .catch(() => undefined);
     }
   }
