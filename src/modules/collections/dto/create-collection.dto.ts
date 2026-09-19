@@ -12,6 +12,14 @@ export class CreateCollectionDto {
   @IsString()
   banner?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'URL ảnh nền ngang ở đầu trang bộ sưu tập trên website (chữ tiêu đề đè lên trên ảnh), upload qua /upload/image',
+  })
+  @IsOptional()
+  @IsString()
+  backgroundImageUrl?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

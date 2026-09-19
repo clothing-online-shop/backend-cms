@@ -301,6 +301,9 @@ model Collection {
   slug           String   @unique
   banner         String?
   bannerPublicId String?
+  // Ảnh nền ngang (dải tiêu đề) ở đầu trang bộ sưu tập trên website — tách khỏi `banner` vì
+  // `banner` là ảnh vuông dùng ở khối quảng bá trang chủ, không hợp làm ảnh nền ngang.
+  backgroundImageUrl String?
   description    String?
   startDate      DateTime
   endDate        DateTime
