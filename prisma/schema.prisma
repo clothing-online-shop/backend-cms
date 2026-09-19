@@ -214,6 +214,10 @@ model Category {
   megaMenuLeftImagePublicId  String?
   megaMenuRightImageUrl      String?
   megaMenuRightImagePublicId String?
+  // Ảnh nền banner (dải tiêu đề) ở đầu trang danh mục trên website (CategoryHero) — tách khỏi
+  // `image` vì `image` là ảnh thẻ dọc dùng ở trang chủ/mega menu, không hợp làm ảnh nền ngang.
+  bannerImageUrl             String?
+  bannerImagePublicId        String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 

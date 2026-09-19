@@ -83,6 +83,10 @@ export class CategoriesService {
         imagePublicId: 'megaMenuRightImagePublicId',
       },
     );
+    assertImagePublicIdAligned(dto.bannerImageUrl, dto.bannerImagePublicId, {
+      image: 'bannerImageUrl',
+      imagePublicId: 'bannerImagePublicId',
+    });
     if (dto.parentId) {
       await this.assertCategoryExists(dto.parentId);
     }
@@ -106,6 +110,8 @@ export class CategoriesService {
         megaMenuLeftImagePublicId: dto.megaMenuLeftImagePublicId ?? null,
         megaMenuRightImageUrl: dto.megaMenuRightImageUrl ?? null,
         megaMenuRightImagePublicId: dto.megaMenuRightImagePublicId ?? null,
+        bannerImageUrl: dto.bannerImageUrl ?? null,
+        bannerImagePublicId: dto.bannerImagePublicId ?? null,
       },
     });
   }
@@ -128,6 +134,10 @@ export class CategoriesService {
         imagePublicId: 'megaMenuRightImagePublicId',
       },
     );
+    assertImagePublicIdAligned(dto.bannerImageUrl, dto.bannerImagePublicId, {
+      image: 'bannerImageUrl',
+      imagePublicId: 'bannerImagePublicId',
+    });
     const existing = await this.assertCategoryExists(id);
 
     let slug = existing.slug;
@@ -171,6 +181,9 @@ export class CategoriesService {
     const rightImageChanged =
       dto.megaMenuRightImageUrl !== undefined &&
       dto.megaMenuRightImageUrl !== existing.megaMenuRightImageUrl;
+    const bannerImageChanged =
+      dto.bannerImageUrl !== undefined &&
+      dto.bannerImageUrl !== existing.bannerImageUrl;
 
     // updateMany (không phải update) + check isDelete:false ngay trong where — chặn race
     // giữa lúc assertCategoryExists() đọc dữ liệu ở trên và lúc ghi ở đây: nếu danh mục bị
@@ -205,6 +218,12 @@ export class CategoriesService {
           dto.megaMenuRightImagePublicId === undefined
             ? undefined
             : dto.megaMenuRightImagePublicId,
+        bannerImageUrl:
+          dto.bannerImageUrl === undefined ? undefined : dto.bannerImageUrl,
+        bannerImagePublicId:
+          dto.bannerImagePublicId === undefined
+            ? undefined
+            : dto.bannerImagePublicId,
       },
     });
     if (count === 0) {
@@ -234,6 +253,11 @@ export class CategoriesService {
     if (rightImageChanged && existing.megaMenuRightImagePublicId) {
       await this.uploadService
         .deleteImage(existing.megaMenuRightImagePublicId)
+        .catch(() => undefined);
+    }
+    if (bannerImageChanged && existing.bannerImagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.bannerImagePublicId)
         .catch(() => undefined);
     }
 
@@ -286,6 +310,11 @@ export class CategoriesService {
     if (existing.megaMenuRightImagePublicId) {
       await this.uploadService
         .deleteImage(existing.megaMenuRightImagePublicId)
+        .catch(() => undefined);
+    }
+    if (existing.bannerImagePublicId) {
+      await this.uploadService
+        .deleteImage(existing.bannerImagePublicId)
         .catch(() => undefined);
     }
   }
