@@ -165,7 +165,7 @@ export class CollectionsService {
     ) {
       throw new ConflictException({
         message:
-          'Bộ sưu tập đang diễn ra — không thể đổi tên hoặc ngày bắt đầu, chỉ được sửa banner/mô tả/ngày kết thúc.',
+          'Bộ sưu tập đang diễn ra — không thể đổi tên hoặc ngày bắt đầu, chỉ được sửa banner/ảnh nền/mô tả/ngày kết thúc.',
         code: ErrorCode.COLLECTION_UPDATE_FIELD_BLOCKED_RUNNING,
       });
     }
