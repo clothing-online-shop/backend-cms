@@ -3,7 +3,11 @@ import { IsOptional, IsString } from 'class-validator';
 import { CreateCollectionDto } from './create-collection.dto';
 
 export class UpdateCollectionDto extends PartialType(
-  OmitType(CreateCollectionDto, ['banner', 'description'] as const),
+  OmitType(CreateCollectionDto, [
+    'banner',
+    'backgroundImageUrl',
+    'description',
+  ] as const),
 ) {
   @ApiPropertyOptional({
     description:
@@ -13,6 +17,15 @@ export class UpdateCollectionDto extends PartialType(
   @IsOptional()
   @IsString()
   banner?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'URL ảnh nền. Bỏ trống field này = giữ nguyên ảnh hiện có; gửi null = xoá ảnh',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  backgroundImageUrl?: string | null;
 
   @ApiPropertyOptional({
     description: 'Bỏ trống field này = giữ nguyên; gửi null = xoá mô tả',

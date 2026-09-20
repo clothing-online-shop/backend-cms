@@ -123,6 +123,7 @@ export class CollectionsService {
         name: dto.name,
         slug,
         banner: dto.banner,
+        backgroundImageUrl: dto.backgroundImageUrl,
         description: dto.description,
         startDate: new Date(dto.startDate),
         endDate: new Date(dto.endDate),
@@ -152,6 +153,9 @@ export class CollectionsService {
       new Date(dto.endDate).getTime() !== existing.endDate.getTime();
     const bannerChanged =
       dto.banner !== undefined && dto.banner !== existing.banner;
+    const backgroundChanged =
+      dto.backgroundImageUrl !== undefined &&
+      dto.backgroundImageUrl !== existing.backgroundImageUrl;
     const descriptionChanged =
       dto.description !== undefined && dto.description !== existing.description;
 
@@ -161,7 +165,7 @@ export class CollectionsService {
     ) {
       throw new ConflictException({
         message:
-          'Bộ sưu tập đang diễn ra — không thể đổi tên hoặc ngày bắt đầu, chỉ được sửa banner/mô tả/ngày kết thúc.',
+          'Bộ sưu tập đang diễn ra — không thể đổi tên hoặc ngày bắt đầu, chỉ được sửa banner/ảnh nền/mô tả/ngày kết thúc.',
         code: ErrorCode.COLLECTION_UPDATE_FIELD_BLOCKED_RUNNING,
       });
     }
@@ -172,6 +176,7 @@ export class CollectionsService {
         startDateChanged ||
         endDateChanged ||
         bannerChanged ||
+        backgroundChanged ||
         descriptionChanged)
     ) {
       throw new ConflictException({
@@ -205,6 +210,10 @@ export class CollectionsService {
         name: dto.name,
         slug,
         banner: dto.banner === undefined ? undefined : dto.banner,
+        backgroundImageUrl:
+          dto.backgroundImageUrl === undefined
+            ? undefined
+            : dto.backgroundImageUrl,
         description:
           dto.description === undefined ? undefined : dto.description,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
