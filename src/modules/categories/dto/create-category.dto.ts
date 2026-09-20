@@ -98,4 +98,18 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsString()
   megaMenuRightImagePublicId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Ảnh nền banner ở đầu trang danh mục trên website (chữ tiêu đề đè lên trên ảnh)',
+  })
+  @IsOptional()
+  @IsUrl()
+  bannerImageUrl?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  bannerImagePublicId?: string | null;
 }
