@@ -39,10 +39,12 @@ export class CreatePopupDto {
   @IsString()
   imagePublicId!: string;
 
-  @ApiProperty({ example: 'Mua sắm ngay' })
+  // Tạm ẩn trên CMS (xem PopupFormModal.tsx ở frontend-admin) — popup giờ điều hướng bằng
+  // click ảnh thay vì nút CTA riêng.
+  @ApiPropertyOptional({ example: 'Mua sắm ngay' })
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  ctaLabel!: string;
+  ctaLabel?: string;
 
   @ApiProperty({ description: 'Link đích khi bấm CTA' })
   @IsString()

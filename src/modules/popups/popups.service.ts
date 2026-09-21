@@ -85,7 +85,9 @@ export class PopupsService {
         discountCode: dto.discountCode,
         imageUrl: dto.imageUrl,
         imagePublicId: dto.imagePublicId,
-        ctaLabel: dto.ctaLabel,
+        // Cột ctaLabel NOT NULL nhưng field đã tạm ẩn trên CMS (không còn bắt buộc nhập) —
+        // fallback chuỗi rỗng khi không gửi lên.
+        ctaLabel: dto.ctaLabel ?? '',
         ctaLinkUrl: dto.ctaLinkUrl,
         sortOrder,
         startDate: new Date(dto.startDate),
