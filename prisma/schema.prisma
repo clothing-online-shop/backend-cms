@@ -585,12 +585,14 @@ model Banner {
   linkUrl       String?
   ctaLabel      String?
   ctaLinkUrl    String?
-  isActive      Boolean  @default(true)
-  sortOrder     Int      @default(0)
-  startDate     DateTime
-  endDate       DateTime
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isActive      Boolean   @default(true)
+  sortOrder     Int       @default(0)
+  // Bỏ trống = không giới hạn — thiếu startDate coi như đã bắt đầu, thiếu endDate coi như
+  // không bao giờ kết thúc (banner "chạy mãi mãi").
+  startDate     DateTime?
+  endDate       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@map("banners")
 }
