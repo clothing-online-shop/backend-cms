@@ -70,11 +70,13 @@ export class BannersService {
 
   async create(dto: CreateBannerDto): Promise<BannerWithStatus> {
     assertDateRange(dto.startDate, dto.endDate);
-    assertStartDateNotInPast(
-      dto.startDate,
-      isDateInPast,
-      ErrorCode.BANNER_START_DATE_IN_PAST,
-    );
+    if (dto.startDate) {
+      assertStartDateNotInPast(
+        dto.startDate,
+        isDateInPast,
+        ErrorCode.BANNER_START_DATE_IN_PAST,
+      );
+    }
 
     // Không mặc định sortOrder về 0 (default của cột) cho mọi banner mới — nếu không, các
     // banner tạo liên tiếp đều cùng sortOrder=0, khiến nút lên/xuống ở FE hoán đổi 2 giá
@@ -93,8 +95,8 @@ export class BannersService {
         ctaLabel: dto.ctaLabel,
         ctaLinkUrl: dto.ctaLinkUrl,
         sortOrder,
-        startDate: new Date(dto.startDate),
-        endDate: new Date(dto.endDate),
+        startDate: dto.startDate ? new Date(dto.startDate) : null,
+        endDate: dto.endDate ? new Date(dto.endDate) : null,
       },
     });
     return withStatus(banner);
@@ -107,16 +109,27 @@ export class BannersService {
     });
     const existing = await this.findExisting(id);
 
-    const startDate = dto.startDate ?? existing.startDate.toISOString();
-    const endDate = dto.endDate ?? existing.endDate.toISOString();
-    assertDateRange(startDate, endDate);
+    // dto.startDate/endDate === undefined -> giữ nguyên mốc cũ; === null -> xóa mốc (không
+    // giới hạn); là string -> mốc mới. existing.startDate/endDate cũng có thể null sẵn (banner
+    // vốn không giới hạn).
+    const nextStartDate =
+      dto.startDate !== undefined
+        ? dto.startDate
+        : (existing.startDate?.toISOString() ?? null);
+    const nextEndDate =
+      dto.endDate !== undefined
+        ? dto.endDate
+        : (existing.endDate?.toISOString() ?? null);
+    assertDateRange(nextStartDate, nextEndDate);
 
-    // Chỉ chặn quá khứ khi startDate THỰC SỰ đổi sang giá trị mới — banner đã RUNNING/ENDED
-    // có startDate vốn dĩ đã ở quá khứ (đúng bản chất), sửa field khác (linkUrl, ảnh...) mà
-    // vẫn gửi lại nguyên startDate cũ không được vô tình bị chặn.
+    // Chỉ chặn quá khứ khi startDate THỰC SỰ đổi sang 1 giá trị cụ thể mới — banner đã
+    // RUNNING/ENDED có startDate vốn dĩ đã ở quá khứ (đúng bản chất), sửa field khác (linkUrl,
+    // ảnh...) mà vẫn gửi lại nguyên startDate cũ không được vô tình bị chặn. Xóa mốc về null
+    // không có khái niệm "quá khứ" nên không cần chặn.
     const startDateChanged =
-      dto.startDate !== undefined &&
-      new Date(dto.startDate).getTime() !== existing.startDate.getTime();
+      dto.startDate != null &&
+      (existing.startDate === null ||
+        new Date(dto.startDate).getTime() !== existing.startDate.getTime());
     if (startDateChanged) {
       assertStartDateNotInPast(
         dto.startDate!,
@@ -141,8 +154,18 @@ export class BannersService {
         ctaLabel: dto.ctaLabel,
         ctaLinkUrl: dto.ctaLinkUrl,
         sortOrder: dto.sortOrder,
-        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        startDate:
+          dto.startDate === undefined
+            ? undefined
+            : dto.startDate === null
+              ? null
+              : new Date(dto.startDate),
+        endDate:
+          dto.endDate === undefined
+            ? undefined
+            : dto.endDate === null
+              ? null
+              : new Date(dto.endDate),
       },
     });
 

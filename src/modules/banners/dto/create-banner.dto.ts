@@ -55,11 +55,19 @@ export class CreateBannerDto {
   @Min(0)
   sortOrder?: number;
 
-  @ApiProperty({ example: '2026-06-01' })
+  @ApiPropertyOptional({
+    example: '2026-06-01',
+    description: 'Bỏ trống = banner đã bắt đầu ngay khi tạo',
+  })
+  @IsOptional()
   @IsDateString()
-  startDate!: string;
+  startDate?: string;
 
-  @ApiProperty({ example: '2026-08-31' })
+  @ApiPropertyOptional({
+    example: '2026-08-31',
+    description: 'Bỏ trống = banner chạy mãi mãi, không tự kết thúc',
+  })
+  @IsOptional()
   @IsDateString()
-  endDate!: string;
+  endDate?: string;
 }

@@ -1,9 +1,15 @@
 import { ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsOptional, IsString } from 'class-validator';
 import { CreateBannerDto } from './create-banner.dto';
 
 export class UpdateBannerDto extends PartialType(
-  OmitType(CreateBannerDto, ['imageUrl', 'imagePublicId', 'linkUrl'] as const),
+  OmitType(CreateBannerDto, [
+    'imageUrl',
+    'imagePublicId',
+    'linkUrl',
+    'startDate',
+    'endDate',
+  ] as const),
 ) {
   @ApiPropertyOptional({
     description:
@@ -27,4 +33,24 @@ export class UpdateBannerDto extends PartialType(
   @IsOptional()
   @IsString()
   linkUrl?: string | null;
+
+  @ApiPropertyOptional({
+    example: '2026-06-01',
+    description:
+      'Bỏ trống field này = giữ nguyên; gửi null = xóa mốc, banner coi như đã bắt đầu ngay',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string | null;
+
+  @ApiPropertyOptional({
+    example: '2026-08-31',
+    description:
+      'Bỏ trống field này = giữ nguyên; gửi null = xóa mốc, banner chạy mãi mãi',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string | null;
 }

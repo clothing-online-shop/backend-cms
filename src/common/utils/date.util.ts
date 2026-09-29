@@ -9,8 +9,14 @@ export function toDateOnly(date: Date): number {
 }
 
 // Dùng chung giữa Collection và Banner (2 model duy nhất có cặp startDate/endDate) —
-// trước đây mỗi module tự viết 1 bản y hệt.
-export function assertDateRange(startDate: string, endDate: string): void {
+// trước đây mỗi module tự viết 1 bản y hệt. Banner cho phép bỏ trống 1 hoặc cả 2 mốc (chạy
+// mãi mãi) nên bỏ qua so sánh khi thiếu 1 trong 2 — Collection luôn truyền đủ cả 2 nên
+// không đổi hành vi cũ.
+export function assertDateRange(
+  startDate?: string | null,
+  endDate?: string | null,
+): void {
+  if (!startDate || !endDate) return;
   if (new Date(endDate) < new Date(startDate)) {
     throw new BadRequestException({
       message: 'Ngày kết thúc phải sau ngày bắt đầu.',
@@ -26,13 +32,16 @@ export type DateRangeStatus = 'UPCOMING' | 'RUNNING' | 'ENDED';
 // hệt nhau. Trả literal union thay vì enum vì 2 module khai enum riêng
 // (BannerStatus/CollectionStatus) theo đúng rule "enum gắn 1 model thì để trong module đó" —
 // value trùng nhau nên caller ép kiểu (`as BannerStatus`) an toàn ở nơi gọi.
+// Banner cho phép startDate/endDate null (không giới hạn) — thiếu startDate coi như đã tới,
+// thiếu endDate coi như chưa qua; cả 2 đều thiếu thì luôn RUNNING. Collection luôn truyền
+// Date không null nên nhánh null không ảnh hưởng hành vi cũ của nó.
 export function deriveDateRangeStatus(
-  startDate: Date,
-  endDate: Date,
+  startDate: Date | null,
+  endDate: Date | null,
 ): DateRangeStatus {
   const today = toDateOnly(new Date());
-  if (today < toDateOnly(startDate)) return 'UPCOMING';
-  if (today > toDateOnly(endDate)) return 'ENDED';
+  if (startDate && today < toDateOnly(startDate)) return 'UPCOMING';
+  if (endDate && today > toDateOnly(endDate)) return 'ENDED';
   return 'RUNNING';
 }
 
